@@ -46,31 +46,60 @@ Success rate (%) over 8 parallel environments × 1 episode per asset-task pair (
 - NVIDIA GPU with CUDA 12.4 (tested on A100 / RTX 4090)
 - [Isaac Lab](https://github.com/isaac-sim/IsaacLab) cloned alongside this repo (Isaac Sim 5.0 standalone binary)
 - Conda (Miniconda / Anaconda)
+- Python 3.11 runtime. Python 3.10 and latest LeRobot 0.6.x are not validated
+  for this IsaacLab release path.
+
+InsightBench uses a **single policy evaluation environment** for Pi0, Diffusion,
+SmolVLA, GR00T, and Instruction-GPT + Pi0. The environment must install an
+LeRobot checkout that contains all policy modules, including
+`lerobot.policies.groot`. The tested source is the upstream Hugging Face
+checkout below; an alternative compatible fork must provide the same policy
+module set.
+
+The reproducible LeRobot baseline for this release is:
+
+```bash
+git clone https://github.com/huggingface/lerobot.git lerobot
+git -C lerobot checkout f6b16f6d97155e3ce34ab2a1ec145e9413588197
+```
+
+This checkout reports `lerobot` version `0.4.1` and is Apache-2.0 licensed.
+Latest upstream LeRobot `0.6.x` support is intentionally out of scope for this
+release and remains a Phase 4 research item.
 
 InsightBench provides **two install scripts** depending on your use case:
 
 | Script | Use case | CuRobo | Install time |
 |--------|----------|--------|-------------|
-| `install_eval.sh` | Run benchmark evaluations | ✗ Not needed | ~5 min |
+| `install_eval.sh` | Run benchmark evaluations for all supported policies | ✗ Not needed | ~5–15 min |
 | `install.sh` | Data collection + interact scenes | ✓ Required | ~30 min (CUDA compile) |
 
-> **Why two environments?** [CuRobo](https://github.com/NVlabs/curobo) is only needed for motion-planning-based data collection (`scripts/collect_demo.py`) and interactive scene testing (`scene_interact/`). Evaluation scripts run without it.
+> **Why two environments?** [CuRobo](https://github.com/NVlabs/curobo) is only needed for motion-planning-based data collection (`scripts/collect_demo.py`) and interactive scene testing (`scene_interact/`). Evaluation scripts and their door/cabinet/bottle config imports run without it; the collection action loads CuRobo only when it is constructed.
 
 ---
 
 ### Option A — Evaluation Only (recommended for most users)
 
 ```bash
-# 1. Clone this repo next to IsaacLab
+# 1. Use the sibling repository layout expected by the installer defaults.
+#    Install Isaac Lab / Isaac Sim as ./IsaacLab following the Isaac Lab docs.
+mkdir -p insightbench-workspace
+cd insightbench-workspace
+
+git clone https://github.com/huggingface/lerobot.git lerobot
+git -C lerobot checkout f6b16f6d97155e3ce34ab2a1ec145e9413588197
+
 git clone https://github.com/your-github-org-or-user/InsightBench.git
 cd InsightBench
 
-# 2. Run the eval-only installer (no CuRobo, ~5 min)
-bash install_eval.sh                      # creates env_insightbench_eval
-# or specify a custom name:
+# 2. Run the eval-only installer.
+# Defaults infer ../IsaacLab and ../lerobot from this repo location.
+bash install_eval.sh
+# or specify a custom env name and paths:
+ISAACLAB_ROOT=/custom/path/to/IsaacLab \
+LEROBOT_ROOT=/custom/path/to/lerobot \
+MINICONDA_ROOT=/custom/path/to/miniconda3 \
 bash install_eval.sh my_env
-# or override paths when IsaacLab/conda are elsewhere:
-ISAACLAB_ROOT=/path/to/IsaacLab MINICONDA_ROOT=/path/to/miniconda3 bash install_eval.sh my_env
 
 # 3. Activate
 conda activate env_insightbench_eval
@@ -85,25 +114,98 @@ huggingface-cli login
 ### Option B — Full Install (data collection + interact scenes)
 
 ```bash
-# Same clone step as above, then:
-bash install.sh                           # creates env_insightbench (~30 min, CuRobo CUDA compile)
-# Override paths when IsaacLab/conda/CuRobo are elsewhere:
-ISAACLAB_ROOT=/path/to/IsaacLab MINICONDA_ROOT=/path/to/miniconda3 CUROBO_ROOT=/path/to/curobo bash install.sh my_env
+# Same sibling layout as above, plus CuRobo as ../curobo.
+git clone https://github.com/NVlabs/curobo.git ../curobo
+bash install.sh
+# or specify paths when IsaacLab/LeRobot/conda/CuRobo are elsewhere:
+ISAACLAB_ROOT=/custom/path/to/IsaacLab \
+LEROBOT_ROOT=/custom/path/to/lerobot \
+MINICONDA_ROOT=/custom/path/to/miniconda3 \
+CUROBO_ROOT=/custom/path/to/curobo \
+bash install.sh my_env
 conda activate env_insightbench
 ```
 
-> **LeRobot fork note**: Both scripts install a customized LeRobot fork from
-> `IsaacLab/lerobot/`. The official PyPI `lerobot>=0.4.0` is **not compatible** —
-> it has breaking API changes in dataset_stats normalization and does not include GuideVLA.
+> **LeRobot baseline note**: Both scripts install LeRobot from `LEROBOT_ROOT`
+> (default: repo-adjacent `../lerobot`). For a unified all-policy evaluation
+> environment, this checkout must include `pi0`, `diffusion`, `smolvla`, and
+> `groot` under `src/lerobot/policies/`. The install scripts fail fast when
+> `groot` is missing because older LeRobot checkouts do not support GR00T
+> evaluation. Install with `LEROBOT_EXTRAS=pi,smolvla,groot`
+> (the default). The `pi` extra is included because LeRobot 0.4.1 declares it
+> as the Pi0/OpenPI dependency set; omitting it would make a fresh Pi0 runtime
+> under-specified. The scripts pin `transformers==4.57.1` after installing
+> LeRobot extras: its broad allowed range otherwise resolves to 4.53.3 in a
+> fresh environment, while the GR00T Eagle processor is validated with 4.57.1.
+> InsightBench installs a version-checked Pi0 SigLIP shim immediately before Pi0
+> model construction. It recreates the two OpenPI changes required by the
+> LeRobot 0.4.1 Pi0 path: the SigLIP installation check and bf16 vision-embedding
+> casting before a bf16 encoder. This keeps one `transformers==4.57.1` runtime
+> for Pi0 and GR00T. A fresh all-policy runtime smoke remains required before
+> release certification.
+> The official PyPI
+> `lerobot` package and latest upstream LeRobot `0.6.x` are **not supported**
+> for this IsaacLab runtime.
+
+> **Installer path defaults**: `install_eval.sh` infers `../IsaacLab` and
+> `../lerobot` relative to the InsightBench repo. `install.sh` also infers
+> `../curobo`. If a candidate is missing, the installer fails fast and asks for
+> `ISAACLAB_ROOT`, `LEROBOT_ROOT`, or `CUROBO_ROOT`.
+
+### Dependency Hygiene Notes
+
+The validated runtime is Python 3.11, IsaacLab 0.45.7, NumPy 1.26.4, and
+LeRobot 0.4.1 at commit `f6b16f6d97155e3ce34ab2a1ec145e9413588197`.
+Fresh installs intentionally pin `opencv-python-headless==4.11.0.86`, matching
+LeRobot's declared OpenCV dependency and avoiding GUI OpenCV packages.
+
+`pip check` may still report metadata warnings from upstream optional tooling:
+
+| Package warning | Owner | Runtime impact |
+|-----------------|-------|----------------|
+| `rerun-sdk` requires `numpy>=2` | LeRobot visualization/telemetry dependency | Policy evaluation imports do not load `rerun`; every LeRobot-compatible `rerun-sdk>=0.24,<0.27` release declares `numpy>=2`, while IsaacLab requires NumPy 1.x. |
+| `nvidia-srl-*` missing `usd-core` or requiring `lxml<5` | Isaac Sim URDF exporter prebundle | Optional exporter tooling; not used by InsightBench evaluation. |
+| `plotly`, `selenium`, `azure-identity`, `msal-extensions` missing optional dependencies | Isaac Sim prebundled core/cloud tooling | Not used by InsightBench policy evaluation. |
+
+There should be no additional InsightBench-owned dependency conflicts beyond
+these known third-party metadata/tooling warnings.
 
 ### Download Assets
 
-All simulation assets are hosted on HuggingFace at [`paragon7060/InsightBench-Assets`](https://huggingface.co/datasets/paragon7060/InsightBench-Assets).
+All simulation assets are distributed through Hugging Face as a compressed
+dataset archive:
 
-The repo has the following structure:
+- [paragon7060/InsightBench-Assets-v0.1](https://huggingface.co/datasets/paragon7060/InsightBench-Assets-v0.1)
+
+Download, verify, and extract:
+
+```bash
+huggingface-cli download paragon7060/InsightBench-Assets-v0.1 \
+    --repo-type dataset \
+    --include "InsightBench-Assets-v0.1.tar.gz" "InsightBench-Assets-v0.1.tar.gz.sha256" \
+    --local-dir .
+
+sha256sum -c InsightBench-Assets-v0.1.tar.gz.sha256
+mkdir -p Assets
+tar -xzf InsightBench-Assets-v0.1.tar.gz -C Assets
+```
+
+Expected archive SHA256:
+
+```text
+718dbfec6a8402148087885090f48f8d9ce6fd412e18eaa88972af8c1c4af9ed
+```
+
+See [`docs/assets.md`](docs/assets.md) for the full asset download,
+verification, layout instructions, and Google Drive mirror.
+
+The archive is extracted into the existing `Assets/` directory; the runtime
+consumer root is therefore `Assets/`.
+
+The extracted assets have the following structure:
 
 ```
-InsightBench-Assets/
+Assets/
 ├── TestSuite/          # Evaluation assets (cabinet, door, bottle) — needed for eval
 │   ├── cabinet_suite/
 │   ├── door_suite/
@@ -117,19 +219,6 @@ InsightBench-Assets/
 └── franka_description/ # Franka URDF/meshes
 ```
 
-```bash
-# Option A — Evaluation only (TestSuite + guides + robot, ~300MB):
-huggingface-cli download paragon7060/InsightBench-Assets \
-    --repo-type dataset \
-    --include "TestSuite/**" "guides/**" "FrankaEmika/**" "franka_description/**" \
-    --local-dir Assets/
-
-# Option B — Full download including TrainSuite for data collection (~3GB):
-huggingface-cli download paragon7060/InsightBench-Assets \
-    --repo-type dataset \
-    --local-dir Assets/
-```
-
 > **Note**: Policy checkpoints can be loaded **directly from HuggingFace Hub** at runtime when
 > `policy.checkpoint` is set to a valid Hub repo ID. Evaluation configs do not use placeholder
 > checkpoint IDs as defaults; policies without a verified public checkpoint must be overridden.
@@ -138,16 +227,29 @@ huggingface-cli download paragon7060/InsightBench-Assets \
 
 ## Quick Start: Evaluate a Policy
 
-> Works with both `env_insightbench_eval` (eval-only) and `env_insightbench` (full).
+> Use `env_insightbench_eval` for benchmark evaluation, or `env_insightbench`
+> if you also need data collection tools. Both environments are intended to be
+> **unified policy environments** when installed with the tested upstream
+> LeRobot checkout or a compatible checkout with the same policy modules.
 
 All policies share a single evaluation entry point. Select a policy via `--config`:
 
 ```bash
-# Activate environment (eval-only is sufficient):
+# Activate the unified evaluation environment:
 conda activate env_insightbench_eval
 
 # Log in to HuggingFace (first time only; needed for private/gated repos):
 huggingface-cli login
+
+# Optional sanity check: all supported policy modules should import.
+python - <<'PY'
+from isaaclab.app import AppLauncher
+from lerobot.policies.pi0.modeling_pi0 import PI0Policy
+from lerobot.policies.diffusion.modeling_diffusion import DiffusionPolicy
+from lerobot.policies.smolvla.modeling_smolvla import SmolVLAPolicy
+from lerobot.policies.groot.modeling_groot import GrootPolicy
+print("InsightBench evaluation environment OK")
+PY
 
 # Evaluate Pi0 on a door task.
 # Override policy.checkpoint with either a Hub repo ID or a local pretrained_model path.
@@ -176,7 +278,7 @@ python scripts/evaluate.py \
 python scripts/evaluate.py \
     --config configs/eval/pi0.yaml \
     --object cabinet --asset_path 31249 --task_idx 1 \
-    policy.checkpoint=ckpt/pi0_v2/checkpoints/100000/pretrained_model \
+    policy.checkpoint=local/pretrained_model \
     policy.checkpoint_subfolder= \
     policy.dataset_stats_root=data/paragon7060/INSIGHTfixpos_v3 \
     eval.save_video=true \
@@ -189,12 +291,18 @@ Results are saved per-run as JSON files under `eval.results_dir` (see config).
 `policy.dataset_stats_repo`, or set it to a local LeRobot dataset directory containing
 `meta/stats.json`.
 
+For SmolVLA, one of these two stats sources is required. Its public config
+intentionally has no default Hub dataset repo; provide a verified override such as
+`policy.dataset_stats_repo=your-hf-user-or-org/dataset-repo` or
+`policy.dataset_stats_root=path/to/lerobot-dataset`.
+
 ### Full Benchmark Evaluation (All Assets × All Tasks)
 
 ```bash
 # Runs all (object, asset, task) combinations sequentially on GPU 0
+# Use a local config copy with policy.checkpoint set to your verified checkpoint.
 chmod +x scripts/eval_batch.sh
-./scripts/eval_batch.sh --config configs/eval/pi0.yaml --num_envs 8 --gpu 0
+./scripts/eval_batch.sh --config configs/eval/local_pi0.yaml --num_envs 8 --gpu 0
 
 # Aggregate results into a summary table
 python scripts/aggregate_results.py --results_dir outputs/results/pi0 --save_csv
@@ -218,6 +326,21 @@ The default evaluation configs require `policy.checkpoint` override unless the c
 explicitly names a verified public checkpoint. For Pi0 Hub checkpoints stored below a repo
 subdirectory, also set `policy.checkpoint_subfolder`.
 
+Pi0 checkpoints saved with the supported LeRobot 0.3.4 config schema are
+decoded in memory for the pinned 0.4.1 runtime; the checkpoint's `config.json`
+is not changed. The compatibility path accepts only the verified 224x224,
+1024-width, eager-attention, non-Aloha configuration contract and rejects
+unclassified or semantically different settings.
+
+On the pinned LeRobot 0.4.1 baseline, Pi0 and SmolVLA load dataset statistics
+through their official policy pre/post-processor factories, not their model
+constructors.
+
+GR00T uses the same `scripts/evaluate.py` entry point as the other policies, but
+it requires the tested LeRobot checkout described above, or a compatible checkout
+with `lerobot.policies.groot`. A default IsaacLab LeRobot checkout that lacks
+`lerobot.policies.groot` is not sufficient.
+
 ### Adding a New Policy
 
 1. Create a wrapper in `insightbench/policies/your_policy.py` inheriting from `PolicyBase`.
@@ -230,7 +353,8 @@ subdirectory, also set `policy.checkpoint_subfolder`.
 
 > **Requires the full environment** (`install.sh`) — CuRobo is used for motion planning.
 >
-> **Assets required**: Download `TrainSuite` from [`paragon7060/InsightBench-Assets`](https://huggingface.co/datasets/paragon7060/InsightBench-Assets) (Option B above).
+> **Assets required**: Download the full Hugging Face asset archive and extract
+> it into `Assets/`; see [`docs/assets.md`](docs/assets.md).
 
 ### Single Asset
 
@@ -252,6 +376,54 @@ python scripts/collect_demo.py \
 Object base position randomization is enabled by default during data collection. Use
 `--pos_rand` to make that choice explicit, or `--no_pos_rand`/`--fixed_pos` to
 collect a fixed-base-position dataset or debug a difficult asset.
+
+### Bounded Smoke Collection
+
+Production collection keeps `decimation=300`. For a short execution smoke, use
+`--smoke_action_steps`: it deliberately overrides production timing with
+`decimation=10` and `render_interval=10`, executes only the requested number of
+planned action steps, and applies a per-step deadline inside the physics loop.
+The smoke logs `EnvStepBegin`, `EnvStepEnd`, and a final `CollectSmoke` result.
+
+First verify planner-to-environment execution without LeRobot frame writes:
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python scripts/collect_demo.py \
+    --object door \
+    --asset_id 99660039960014l \
+    --scene_key 3a \
+    --dataset_name local/insightbench-smoke-door-dry \
+    --asset_dir Assets/TrainSuite/door_suite \
+    --num_envs 1 \
+    --target_episodes 1 \
+    --max_loops 1 \
+    --no_pos_rand \
+    --debug_collect --progress_interval 1 \
+    --smoke_action_steps 2 \
+    --no_frame_write \
+    --headless --enable_cameras
+```
+
+Then validate image/frame writing and the LeRobot episode save path with a separate
+local dataset. `--smoke_save_episode` saves a deliberately partial smoke episode;
+it is a writer check, not a successful demonstration.
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python scripts/collect_demo.py \
+    --object door \
+    --asset_id 99660039960014l \
+    --scene_key 3a \
+    --dataset_name local/insightbench-smoke-door-frames \
+    --asset_dir Assets/TrainSuite/door_suite \
+    --num_envs 1 \
+    --target_episodes 1 \
+    --max_loops 1 \
+    --no_pos_rand \
+    --debug_collect --progress_interval 1 \
+    --smoke_action_steps 2 \
+    --smoke_save_episode \
+    --headless --enable_cameras
+```
 
 Scene keys per object type:
 - **cabinet**: `1ext` (one key per asset, drawer variant is asset-specific)
@@ -393,10 +565,16 @@ export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH
 ```
 
 ### `ModuleNotFoundError: No module named 'pkg_resources'`
-Occurs during install when a legacy dependency (`flatdict`) uses old-style `setup.py`. The install scripts handle this automatically by pinning `setuptools<70`. If you see this error during manual install:
+The installers use a temporary `setuptools<70` bootstrap only for the three
+IsaacLab editable installs, together with validated `numpy==1.26.4`,
+`pillow==11.2.1`, and `toml`; IsaacLab setup metadata imports `toml`. They then
+upgrade to `setuptools==80.9.0` before LeRobot because LeRobot 0.4.1 requires
+`setuptools>=71,<81`. `flatdict==4.0.1` was validated with that final version.
+If a manual install fails during the IsaacLab metadata stage:
 ```bash
-pip install "setuptools<70"
+pip install "numpy==1.26.4" "pillow==11.2.1" "setuptools<70" toml
 pip install <failing_package> --no-build-isolation
+pip install "setuptools==80.9.0"
 ```
 
 ### CuRobo build: `CUDA version (11.7) mismatches PyTorch (12.8)`
@@ -406,11 +584,14 @@ CUDA_HOME=/usr/local/cuda-12.5 PATH=/usr/local/cuda-12.5/bin:$PATH \
     pip install -e /path/to/curobo --no-build-isolation
 ```
 
-### numpy / opencv version conflicts
-LeRobot (fork v0.3.4) and isaaclab have conflicting numpy/opencv constraints. The install scripts resolve this by pinning:
+### numpy / OpenCV version conflicts
+The unified LeRobot `0.4.1` baseline and IsaacLab runtime are pinned to a Python
+3.11 / NumPy 1.x environment. The install scripts resolve package conflicts by
+pinning:
 - `numpy==1.26.4` — required by isaaclab (`numpy<2`)
-- `opencv-python==4.11.0.86` — last version compatible with numpy 1.x
-- `gymnasium==1.2.0` — required by isaaclab (lerobot's `<1.0.0` constraint is unused at runtime)
+- `opencv-python-headless==4.11.0.86` — LeRobot's declared OpenCV dependency,
+  pinned to the NumPy 1.x-compatible version used in `groot_lab`
+- `gymnasium==1.2.0` — required by isaaclab
 
 ---
 
@@ -418,7 +599,7 @@ LeRobot (fork v0.3.4) and isaaclab have conflicting numpy/opencv constraints. Th
 
 - **Simulator**: Isaac Sim 5.0 (PhysX GPU)
 - **Robot**: Franka Panda (8-DOF joint position control)
-- **Observation cameras**: wrist (224×224), right-shoulder (224×224), guide (672×672)
+- **Observation cameras**: wrist (224×224), right-shoulder (224×224), guide (224×224 for eval; 672×672 for collect datasets)
 - **Simulation rate**: 120 Hz, decimation = 12 (10 Hz action frequency)
 - **Episode length**: 100 steps (~10 s per skill)
 - **Parallelism**: Tested with 8 × NVIDIA A100 (80 GB)

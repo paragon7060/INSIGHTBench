@@ -12,7 +12,8 @@ rewritten while preparing the public bundle.
 - Train cabinet assets keep their full directory names, such as
   `StorageFurniture-46130-link_0-handle_0-joint_0-handlejoint_0`.
 - Public distribution uses physical copies, not symlinks.
-- The public archive will be distributed separately through Google Drive.
+- The public archive is distributed through Hugging Face as the primary channel,
+  with Google Drive kept as a mirror.
 - `MANIFEST.json` is required.
 - `ASSET_LICENSES.md` is required.
 - Door, bottle, and cabinet collection each need one smoke test before release.
@@ -32,8 +33,8 @@ manifest or a future exclude list.
 
 ## Source To Target Mapping
 
-The public Google Drive archive should contain the bundle root directly. Users
-will unpack or download it into local `Assets/`, so paths become
+The public archive should contain the bundle root directly. Users will unpack
+or download it into local `Assets/`, so paths become
 `Assets/TestSuite`, `Assets/TrainSuite`, and so on.
 
 | Source | Public target |
@@ -143,10 +144,13 @@ The generated manifest includes:
 5. Run the same rsync commands without `--dry-run` only after review.
 6. Copy `MANIFEST.json`, `ASSET_LICENSES.md`, and a short asset README into the
    staging root.
-7. Create a compressed archive for Google Drive distribution.
-8. Download/unpack the archive in a clean location and verify that local paths
+7. Create a compressed archive for Hugging Face distribution and Google Drive
+   mirroring.
+8. Upload the archive, checksum, `MANIFEST.json`, `ASSET_LICENSES.md`, and
+   dataset card to the Hugging Face dataset repo.
+9. Download/unpack the archive in a clean location and verify that local paths
    resolve as `Assets/TestSuite`, `Assets/TrainSuite`, `Assets/guides`, etc.
-9. Run door, bottle, and cabinet collection smoke tests.
+10. Run door, bottle, and cabinet collection smoke tests.
 
 Recommended staging archive name:
 
@@ -171,4 +175,3 @@ Known code risk to resolve before declaring cabinet collection supported:
 - `scripts/collect_batch.sh` uses cabinet `scene_key=1ext`.
 - `cfg.helper.get_info_collect()` currently derives a cabinet handle index from
   `scene_key[-1]`, which is unsafe for `1ext`.
-

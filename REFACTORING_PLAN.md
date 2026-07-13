@@ -34,9 +34,9 @@ Each thread should handle only the TODO it was assigned.
 ## Standard Code Thread Prompt
 
 ```text
-너는 /home/seonho/workspace/InsightBench 리팩터링 Code Thread다.
+너는 <insightbench-root> 리팩터링 Code Thread다.
 
-/home/seonho/workspace/InsightBench/REFACTORING_PLAN.md 를 읽고,
+<insightbench-root>/REFACTORING_PLAN.md 를 읽고,
 지정된 TODO 하나만 수행하라.
 
 규칙:
@@ -49,9 +49,9 @@ Each thread should handle only the TODO it was assigned.
 ## Standard Run/Eval Thread Prompt
 
 ```text
-너는 /home/seonho/workspace/InsightBench Run/Eval 검증 Thread다.
+너는 <insightbench-root> Run/Eval 검증 Thread다.
 
-/home/seonho/workspace/InsightBench/REFACTORING_PLAN.md 를 읽고,
+<insightbench-root>/REFACTORING_PLAN.md 를 읽고,
 지정된 P2 TODO만 수행하라.
 
 규칙:
@@ -190,7 +190,7 @@ Files:
 
 Instructions:
 
-- Remove or comment out personal absolute paths such as `/home/seonho/...`.
+- Remove or comment out personal absolute paths such as `<user-home>/...`.
 - Prefer `dataset_stats_root` as an override example, not a default.
 - Keep only known public checkpoint IDs as defaults.
 - If no public checkpoint is confirmed, mark the field as requiring override.
@@ -205,7 +205,7 @@ Forbidden:
 Verification:
 
 ```bash
-rg -n "/home/seonho|/home/bluepot|YOUR_HF_USERNAME|YOUR_ORG" configs README.md
+rg -n "/home/|/mntvol|YOUR_HF_USERNAME|YOUR_ORG" configs README.md
 python3 -m compileall -q insightbench scripts
 ```
 
@@ -330,10 +330,10 @@ Instructions:
 - Search for:
   - `omni.isaac.lab`
   - `source/InsightManip`
-  - `/pkgs/IsaacLabCurobo`
+  - `<legacy-isaaclab-root>`
 - Migrate actively used files to `isaaclab.*` imports where straightforward.
 - Update docs/scripts from `source/InsightManip/asset_lab` to `assets/asset_lab`.
-- Replace hardcoded `/pkgs/IsaacLabCurobo/Assets` where a current `Assets/`
+- Replace hardcoded legacy IsaacLab asset roots where a current `Assets/`
   or env-var based path is clear.
 - If a file is legacy and unsafe to migrate, mark/report it instead of deleting.
 
@@ -346,7 +346,7 @@ Forbidden:
 Verification:
 
 ```bash
-rg -n "omni\\.isaac\\.lab|source/InsightManip|/pkgs/IsaacLabCurobo" .
+rg -n "omni\\.isaac\\.lab|source/InsightManip|legacy-asset-root" .
 python3 -m compileall -q interact scene_interact assets
 ```
 
@@ -879,7 +879,7 @@ Remove private paths, placeholders, and inconsistent metadata before release.
 Search:
 
 ```bash
-rg -n "/home/seonho|/home/bluepot|/pkgs|YOUR_ORG|YOUR_HF_USERNAME|OPENAI_API_KEY|sk-" .
+rg -n "/home/|/mntvol|YOUR_ORG|YOUR_HF_USERNAME|OPENAI_API_KEY|sk-" .
 ```
 
 Check:
@@ -903,6 +903,139 @@ Completion:
 
 - Remaining private/path hits are intentional examples or gone.
 - README, LICENSE, pyproject are consistent.
+
+### P3-UNIFIED-LEROBOT-RELEASE-HARDENING
+
+Code Thread: yes.
+Run/Eval Thread: yes for smoke only.
+
+Goal:
+Make the unified Pi0/Diffusion/SmolVLA/GR00T evaluation environment
+reproducible from public release instructions without migrating to latest
+upstream LeRobot 0.6.x.
+
+Baseline:
+
+```text
+URL:     https://github.com/huggingface/lerobot.git
+branch:  main
+commit:  f6b16f6d97155e3ce34ab2a1ec145e9413588197
+version: 0.4.1
+license: Apache-2.0
+extras:  pi,smolvla,groot
+```
+
+Status:
+
+- Operational baseline: PASS in `groot_lab`.
+- Imports: Pi0, Diffusion, SmolVLA, GR00T PASS.
+- Unified runtime outcomes: Pi0 door evaluation PASS through first action,
+  rollout, result writing, and task success `1/1`; SmolVLA door evaluation
+  PASS with task success `1/1`; GR00T door evaluation pipeline PASS with task
+  result `0/1`; Diffusion is DEFERRED solely because no checkpoint was supplied,
+  not because of a runtime failure.
+- OpenCV fresh-install blocker: RESOLVED by matching LeRobot's declared
+  `opencv-python-headless==4.11.0.86` package and removing headless uninstall.
+- GR00T door eval smoke: runtime PASS through rollout/result JSON; task score
+  `0/1` is not classified as an infrastructure failure.
+- Public source provenance: CONFIRMED by fetching the exact commit from GitHub.
+- Dependency hygiene: OpenCV fresh-install blocker is resolved with
+  `opencv-python-headless==4.11.0.86`; `numpy==1.26.4`, `pillow==11.2.1`,
+  `setuptools<70`, and `toml` are bootstrapped before IsaacLab editable metadata
+  generation so it does not initially resolve against NumPy 2. The installers
+  then set `setuptools==80.9.0` before LeRobot extras to satisfy LeRobot 0.4.1's
+  `>=71,<81` requirement.
+- Non-blocking residual `pip check` metadata warnings are limited to upstream
+  optional tooling: LeRobot `rerun-sdk` requires NumPy 2 in all compatible
+  `>=0.24,<0.27` wheels, while IsaacLab requires NumPy 1.x; Isaac Sim
+  prebundled exporter/cloud tooling reports missing optional deps. Policy
+  evaluation imports do not load `rerun`.
+- Public installer portability: defaults infer repo-adjacent `../IsaacLab`,
+  `../lerobot`, and full-install-only `../curobo`; missing candidates fail fast
+  with `ISAACLAB_ROOT`, `LEROBOT_ROOT`, or `CUROBO_ROOT` override guidance.
+- Config portability: public eval configs leave `policy.checkpoint` empty and
+  `scripts/evaluate.py` requires a checkpoint override before launching
+  Isaac Sim.
+- Eval-only CuRobo boundary: door/cabinet/bottle config imports can reference
+  `CuroboInteractionAction` without importing CuRobo. The action loads planner
+  dependencies only when collection constructs it; a no-CuRobo regression test
+  covers that import boundary.
+- Policy runtime baseline: LeRobot 0.4.1 adapters use
+  `lerobot.utils.constants`, and installers pin `transformers==4.57.1` after
+  LeRobot extras. The source allows `>=4.53,<5`, but fresh resolution selected
+  4.53.3 while the validated GR00T Eagle runtime uses 4.57.1. Before Pi0 model construction, the
+  version-pinned InsightBench SigLIP shim installs the two required OpenPI
+  semantics: a forward-patch-aware `siglip.check` module and bf16 vision
+  embedding casting for bf16 encoders. This is one 4.57.1 environment rather
+  than separate policy environments.
+- Pi0/SmolVLA contracts: Pi0's PaliGemma bridge targets the embedded
+  `modeling_pi0.PaliGemmaWithExpertModel` and preserves the baseline checkpoint
+  loader. Legacy 0.3.4 Pi0 checkpoint configs are decoded through an in-memory
+  0.4.1 normalization only when their values match the verified contract:
+  224x224 padding, positive `num_steps`, `proj_width=1024`, disabled
+  Aloha transforms, eager attention, and enabled caching. Other values and
+  unclassified fields fail fast; the original config file is not edited. Pi0
+  and SmolVLA stats are supplied through their official 0.4.1 pre/post-
+  processor factories, never the policy model constructor; focused tests cover
+  that integration. Pi0 and SmolVLA have passed full env7 door rollouts with
+  `1/1` task success; GR00T has passed its rollout pipeline with `0/1` task
+  success. Diffusion evaluation remains deferred pending a supplied checkpoint.
+  Transformers 4.57 mutates a supplied DynamicCache despite Pi0 passing
+  `use_cache=False` for suffix denoising. The Pi0 adapter preserves the legacy
+  `fill_kv_cache=False` contract by restoring the 816-token image/language
+  prefix after each 51-token state/action suffix. Its CPU regression constructs
+  the corresponding Gemma attention-mask and position-id shapes; the subsequent
+  env7 Pi0 `1/1` door success closes this compatibility blocker.
+  SmolVLA requires an explicit verified dataset stats Hub repo or local
+  dataset root before Isaac launch; the public config has no unverified default.
+- Release boundary: latest upstream LeRobot 0.6.x remains Phase 4 pending.
+
+Rules:
+
+- Do not vendor or copy `<public-workspace>/lerobot` into this
+  repository.
+- Do not guess private fork URLs.
+- Fail fast when `LEROBOT_ROOT` lacks `lerobot.policies.groot`.
+- Keep Python 3.11 / NumPy 1.x pins for the IsaacLab runtime.
+
+Completion:
+
+- README documents the public clone URL and immutable commit checkout.
+- `install.sh` and `install_eval.sh` document the same baseline and require
+  `pi,smolvla,groot` extras by default.
+- `docs/refactoring_status.md` records operational pass, provenance status, and
+  Phase 4 separation.
+
+### P3-COLLECT-SMOKE-EXECUTION
+
+Code Thread: yes.
+Run/Eval Thread: yes for GPU smoke only.
+
+Status:
+
+- Production collection remains `decimation=300` with one render per action.
+- `--collect_decimation` is propagated to `env_cfg.decimation`; the collector
+  step loop performs exactly that many synchronous physics substeps.
+- Smoke-only `--smoke_action_steps N` forces low `decimation=10` and
+  `render_interval=10`, limits the trajectory executor to `N` actions, and logs
+  `EnvStepBegin`/`EnvStepEnd` around settle and action calls.
+- The environment checks a smoke-only deadline inside its physics/render/
+  observation path. Production collection does not set the deadline.
+- `--no_frame_write` skips LeRobot frame/image writes and episode save. A separate
+  `--smoke_save_episode` path saves a partial frame-write smoke episode to verify
+  the writer without treating it as a successful demonstration.
+
+Run/Eval order:
+
+1. Run a door smoke with `--smoke_action_steps 2 --no_frame_write` and verify
+   begin/end progress plus bounded completion.
+2. Repeat without `--no_frame_write` and with `--smoke_save_episode`; verify the
+   partial local episode is saved.
+3. Only after both pass, retry normal collection with the production default
+   `decimation=300`.
+
+Scope rule: this does not change the LeRobot dataset migration plan; latest
+LeRobot writer migration remains Phase 4 work.
 
 ### P3-TODO 3: Top-Level Module Integration Decision
 
@@ -976,7 +1109,7 @@ Candidate command:
 python3 -m compileall -q insightbench cfg custom_lab interact demo_gen scripts
 python3 -m pytest tests
 python3 scripts/generate_eval_jobs.py --count
-rg -n "/home/seonho|/home/bluepot|/pkgs/IsaacLabCurobo" .
+rg -n "/home/|/mntvol" .
 ```
 
 Implementation options:
@@ -1119,8 +1252,10 @@ Current finding:
 - Current IsaacLab runtime is constrained to Python 3.11 and NumPy 1.x.
 - Latest LeRobot 0.6.x requires Python 3.12 and NumPy 2.x.
 - A single environment is therefore not a safe default target.
-- GR00T is blocked in the current env because the installed LeRobot 0.3.4 fork
-  does not include `lerobot.policies.groot`.
+- GR00T is available for the Phase 3 release baseline through
+  `huggingface/lerobot@f6b16f6d97155e3ce34ab2a1ec145e9413588197`; older
+  IsaacLab-local LeRobot checkouts that lack `lerobot.policies.groot` must fail
+  fast during install.
 
 Reference status document:
 
@@ -1238,7 +1373,7 @@ Completion:
 
 ## Current GitHub Upload Blocker
 
-`/home/seonho/workspace/InsightBench` currently fails:
+`<insightbench-root>` currently fails:
 
 ```bash
 git status --short --branch

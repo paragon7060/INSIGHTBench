@@ -6,7 +6,7 @@ import torch
 import torchvision.transforms as T
 from lerobot.datasets.lerobot_dataset import LeRobotDatasetMetadata
 from lerobot.policies.diffusion.modeling_diffusion import DiffusionPolicy
-from lerobot.constants import OBS_STATE
+from lerobot.utils.constants import OBS_STATE
 
 from insightbench.policies.base import PolicyBase
 from insightbench.policies.pi0 import Pi0Wrapper  # reuse _trim_stats

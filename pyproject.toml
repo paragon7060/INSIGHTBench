@@ -8,26 +8,29 @@ version = "1.0.0"
 description = "A benchmark for evaluating robot manipulation policies with visual guides"
 readme = "README.md"
 license = { file = "LICENSE" }
-requires-python = ">=3.10"
+requires-python = ">=3.11,<3.12"
 keywords = ["robotics", "manipulation", "benchmark", "imitation-learning", "isaac-sim"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: Apache Software License",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
     "torch>=2.0",
     "torchvision>=0.15",
-    "numpy>=1.24",
+    "numpy>=1.24,<2",
     "omegaconf>=2.3",
-    "opencv-python>=4.8",
-    "Pillow>=9.0",
+    "opencv-python-headless==4.11.0.86",
+    "Pillow==11.2.1",
     "packaging>=21.0",
-    # lerobot: install the InsightBench-compatible fork (see README Installation)
-    # pip install git+https://github.com/YOUR_ORG/lerobot.git
+    # GR00T's Eagle API and the InsightBench Pi0 SigLIP shim target this release.
+    "transformers==4.57.1",
+    "botocore",
+    "click",
+    # lerobot: install the unified GROOT-capable baseline from README Installation.
+    # https://github.com/huggingface/lerobot.git @ f6b16f6d97155e3ce34ab2a1ec145e9413588197
     "openai>=1.0",  # optional: only required for instruction_gpt policy
 ]
 

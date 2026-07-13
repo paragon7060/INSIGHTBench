@@ -9,7 +9,7 @@ Usage:
 OmegaConf dot-notation overrides are supported after positional args:
     python scripts/evaluate.py --config configs/eval/pi0.yaml \\
         --object door --asset_path 14b --task_idx 1 \\
-        policy.checkpoint=ckpt/pi0_v2/checkpoints/100000/pretrained_model \\
+        policy.checkpoint=local/pretrained_model \\
         eval.save_video=false
 """
 
@@ -21,6 +21,9 @@ import sys
 
 from isaaclab.app import AppLauncher
 from omegaconf import OmegaConf
+
+from insightbench.utils.eval_config import load_eval_config, validate_required_eval_inputs
+
 
 # ─── CLI ──────────────────────────────────────────────────────────────────────
 parser = argparse.ArgumentParser(description="InsightBench evaluation.")
@@ -37,6 +40,8 @@ parser.add_argument("overrides",     nargs="*", help="OmegaConf key=value overri
 AppLauncher.add_app_launcher_args(parser)
 
 args_cli, _ = parser.parse_known_args()
+cfg_cli = load_eval_config(args_cli.config, args_cli.overrides)
+validate_required_eval_inputs(cfg_cli, args_cli.config)
 app_launcher  = AppLauncher(args_cli)
 simulation_app = app_launcher.app
 
@@ -69,6 +74,13 @@ def _get_task_prompt(infer_type: str, scene_key: str) -> str:
     if prompt_map is None:
         raise ValueError(f"Unknown infer_type '{infer_type}'. Choose from: {list(_PROMPT_MAPS)}")
     return prompt_map[scene_key]
+
+
+def _resolve_policy_inference_options(policy_cfg) -> tuple[str, bool]:
+    """Read optional prompt/camera settings from an OmegaConf policy section."""
+    infer_type = OmegaConf.select(policy_cfg, "infer_type", default="guide")
+    guide_cam = OmegaConf.select(policy_cfg, "guide_cam", default=True)
+    return infer_type, guide_cam
 
 
 def _noop_warmup(env: ManagerBasedContinuousEnv, obs_batch: dict, warmup_steps: int):
@@ -143,13 +155,11 @@ def _log(msg: str) -> None:
 
 
 def main() -> None:
-    args = parser.parse_args()
+    args = args_cli
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # ── Load and merge config ──────────────────────────────────────────────────
-    cfg = OmegaConf.load(args.config)
-    if args.overrides:
-        cfg = OmegaConf.merge(cfg, OmegaConf.from_dotlist(args.overrides))
+    cfg = cfg_cli
 
     policy_cfg = cfg.policy
     eval_cfg   = cfg.eval
@@ -197,8 +207,7 @@ def main() -> None:
     _log(f"[2/3] Policy loaded  ({policy_cfg.type})")
 
     # ── Task prompts ───────────────────────────────────────────────────────────
-    infer_type = OmegaConf.select(policy_cfg, "infer_type", default="guide")
-    guide_cam  = OmegaConf.select(policy_cfg, "guide_cam",  default=True)
+    infer_type, guide_cam = _resolve_policy_inference_options(policy_cfg)
     task_prompt = _get_task_prompt(infer_type, scene_key)
     task_prompts = [task_prompt] * num_envs
 

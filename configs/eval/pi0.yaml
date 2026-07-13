@@ -9,7 +9,7 @@
 #   policy.checkpoint_subfolder=pi0_guide_v7/checkpoints/050000/pretrained_model
 #
 # Local example:
-#   policy.checkpoint=ckpt/pi0_guide_v7/checkpoints/050000/pretrained_model
+#   policy.checkpoint=local/pretrained_model
 #   policy.checkpoint_subfolder=
 #
 # Optional local dataset stats cache:
@@ -17,7 +17,7 @@
 
 policy:
   type: pi0
-  checkpoint: "/mntvol1/INSIGHTBench/ckpt/pi0_v5_s50/checkpoints/050000/pretrained_model"
+  checkpoint: ""  # Required: override with a verified Hub repo ID or local checkpoint path.
   checkpoint_subfolder: ""  # Optional: override when loading a pretrained_model subfolder from Hub.
   dataset_stats_repo: "paragon7060/INSIGHTfixposV3"
   state_start_idx: 7

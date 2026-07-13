@@ -34,6 +34,12 @@ ${data}/
 Assets/
 Assets
 InsightBench-Assets-Staging/
+InsightBench-Assets-*.tar.gz
+InsightBench-Assets-*.tar.gz.sha256
+InsightBench-Assets-*.parts/
+InsightBench-Assets-*.parts-*/
+InsightBench-Assets-*.parts.sha256
+InsightBench-Assets-*.RELEASE_README.txt
 
 # Evaluation outputs
 outputs/

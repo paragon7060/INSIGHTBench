@@ -1,6 +1,9 @@
+import argparse
 import os
+
 import cv2
 from tqdm import tqdm
+
 
 def count_videos_and_frames(root_path):
     """
@@ -53,8 +56,16 @@ def count_videos_and_frames(root_path):
     print(f"📂 총 비디오 파일 개수: {total_video_count}개")
     print(f"🎞️ 모든 비디오의 총 프레임 수: {total_frame_count}개")
 
-# --- 실행 부분 ---
+def parse_args():
+    parser = argparse.ArgumentParser(description="Count MP4 files and frames in dataset video folders.")
+    parser.add_argument(
+        "root_path",
+        metavar="ROOT_PATH",
+        help="Directory containing video chunk subdirectories.",
+    )
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    # 여기에 비디오들이 있는 상위 폴더 경로를 지정하세요.
-    target_directory = '/home/seonho/workspace/IsaacLab/data/paragon7060/INSIGHT-final-guide-3/videos/chunk-000'
-    count_videos_and_frames(target_directory)
+    args = parse_args()
+    count_videos_and_frames(args.root_path)

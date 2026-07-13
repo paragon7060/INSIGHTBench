@@ -10,6 +10,7 @@ from dataclasses import MISSING
 import gymnasium as gym
 import math
 import numpy as np
+import time
 import torch
 from collections.abc import Sequence
 from typing import Any, ClassVar
@@ -56,6 +57,9 @@ class ManagerBasedRLStepEnv(ManagerBasedRLEnv):
         self._bottle_effort_flag = None
         self._bottle_effort_value = None
         self._sim_counter_per_action = 0
+        # Collection smoke runs may set a per-action deadline. It remains disabled
+        # for normal evaluation and production collection.
+        self._collect_step_deadline_s: float | None = None
         self.scene_key = scene_key
         self._cache_articulations()
         # bottle effort flag/value 버퍼 초기화
@@ -275,6 +279,12 @@ class ManagerBasedRLStepEnv(ManagerBasedRLEnv):
     """
     Operations - MDP
     """
+    def _check_collect_step_deadline(self, stage: str) -> None:
+        """Raise at a physics-loop boundary when a collection smoke step expires."""
+        deadline = self._collect_step_deadline_s
+        if deadline is not None and time.perf_counter() >= deadline:
+            raise TimeoutError(f"collect env.step deadline exceeded during {stage}")
+
     def step(self, action: torch.Tensor) -> VecEnvStepReturn:
         """Execute one time-step of the environment's dynamics and reset terminated environments.
 
@@ -294,8 +304,10 @@ class ManagerBasedRLStepEnv(ManagerBasedRLEnv):
         Returns:
             A tuple containing the observations, rewards, resets (terminated and truncated) and extras.
         """
+        self._check_collect_step_deadline("action processing")
         # process actions
         self.action_manager.process_action(action.to(self.device))
+        self._check_collect_step_deadline("action processing")
         # check if we need to do rendering within the physics loop
         # note: checked here once to avoid multiple checks within the loop
         is_rendering = self.sim.has_gui() or self.sim.has_rtx_sensors()
@@ -303,6 +315,7 @@ class ManagerBasedRLStepEnv(ManagerBasedRLEnv):
 
         # perform physics stepping
         for _ in range(self.cfg.decimation):
+            self._check_collect_step_deadline("physics stepping")
             self._sim_step_counter += 1
             self._sim_counter_per_action += 1
             # set actions into buffers
@@ -313,16 +326,20 @@ class ManagerBasedRLStepEnv(ManagerBasedRLEnv):
             self.scene.write_data_to_sim()
             # simulate
             self.sim.step(render=False)
+            self._check_collect_step_deadline("simulation")
             # render between steps only if the GUI or an RTX sensor needs it
             # note: we assume the render interval to be the shortest accepted rendering interval.
             #    If a camera needs rendering at a faster frequency, this will lead to unexpected behavior.
             if self._sim_step_counter % self.cfg.sim.render_interval == 0 and is_rendering:
                 self.sim.render()
+                self._check_collect_step_deadline("rendering")
             # update buffers at sim dt
             self.scene.update(dt=self.physics_dt)
+            self._check_collect_step_deadline("scene update")
 
         # post-step:
         self._check_bottle()
+        self._check_collect_step_deadline("post-physics checks")
         # -- update env counters (used for curriculum generation)
         self.episode_length_buf += 1  # step in current episode (per env)
         self.common_step_counter += 1  # total step (common for all envs)
@@ -335,10 +352,12 @@ class ManagerBasedRLStepEnv(ManagerBasedRLEnv):
             pass
         # -- check terminations
         self.reset_buf = self.termination_manager.compute()
+        self._check_collect_step_deadline("termination computation")
         self.reset_terminated = self.termination_manager.terminated
         self.reset_time_outs = self.termination_manager.time_outs
         # -- reward computation
         self.reward_buf = self.reward_manager.compute(dt=self.step_dt)
+        self._check_collect_step_deadline("reward computation")
         # print(f"Reward : {self.reward_buf.tolist()}")
 
         # -- reset envs that terminated/timed-out and log the episode information
@@ -347,14 +366,19 @@ class ManagerBasedRLStepEnv(ManagerBasedRLEnv):
             self._reset_idx(reset_env_ids)
             self._cache_articulations()
             print(f"Resetting env_ids: {reset_env_ids.tolist()}")
+        self._check_collect_step_deadline("environment reset")
         # -- update command
         self.command_manager.compute(dt=self.step_dt)
+        self._check_collect_step_deadline("command update")
         # -- step interval events
         if "interval" in self.event_manager.available_modes:
             self.event_manager.apply(mode="interval", dt=self.step_dt)
+        self._check_collect_step_deadline("interval events")
         # -- compute observations
         # note: done after reset to get the correct observations for reset envs
+        self._check_collect_step_deadline("observation computation")
         self.obs_buf = self.observation_manager.compute()
+        self._check_collect_step_deadline("observation computation")
 
         # return observations, rewards, resets and extras
         return self.obs_buf, self.reward_buf, self.reset_terminated, self.reset_time_outs, self.extras
@@ -417,8 +441,10 @@ class ManagerBasedContinuousEnv(ManagerBasedRLStepEnv):
         Returns:
             A tuple containing the observations, rewards, resets (terminated and truncated) and extras.
         """
+        self._check_collect_step_deadline("action processing")
         # process actions
         self.action_manager.process_action(action.to(self.device))
+        self._check_collect_step_deadline("action processing")
         # check if we need to do rendering within the physics loop
         # note: checked here once to avoid multiple checks within the loop
         is_rendering = self.sim.has_gui() or self.sim.has_rtx_sensors()
@@ -426,6 +452,7 @@ class ManagerBasedContinuousEnv(ManagerBasedRLStepEnv):
 
         # perform physics stepping
         for _ in range(self.cfg.decimation):
+            self._check_collect_step_deadline("physics stepping")
             self._sim_step_counter += 1
             self._sim_counter_per_action += 1
             # set actions into buffers
@@ -436,16 +463,20 @@ class ManagerBasedContinuousEnv(ManagerBasedRLStepEnv):
             self.scene.write_data_to_sim()
             # simulate
             self.sim.step(render=True)
+            self._check_collect_step_deadline("simulation")
             # render between steps only if the GUI or an RTX sensor needs it
             # note: we assume the render interval to be the shortest accepted rendering interval.
             #    If a camera needs rendering at a faster frequency, this will lead to unexpected behavior.
             if self._sim_step_counter % self.cfg.sim.render_interval == 0 and is_rendering:
                 self.sim.render()
+                self._check_collect_step_deadline("rendering")
             # update buffers at sim dt
             self.scene.update(dt=self.physics_dt)
+            self._check_collect_step_deadline("scene update")
 
         # post-step:
         self._check_bottle()
+        self._check_collect_step_deadline("post-physics checks")
         # -- update env counters (used for curriculum generation)
         self.episode_length_buf += 1  # step in current episode (per env)
         self.common_step_counter += 1  # total step (common for all envs)
@@ -458,10 +489,12 @@ class ManagerBasedContinuousEnv(ManagerBasedRLStepEnv):
             pass
         # -- check terminations
         self.reset_buf = self.termination_manager.compute()
+        self._check_collect_step_deadline("termination computation")
         self.reset_terminated = self.termination_manager.terminated
         self.reset_time_outs = self.termination_manager.time_outs
         # -- reward computation
         self.reward_buf = self.reward_manager.compute(dt=self.step_dt)
+        self._check_collect_step_deadline("reward computation")
         # print(f"Reward : {self.reward_buf.tolist()}")
 
         # -- reset envs that terminated/timed-out and log the episode information
@@ -470,14 +503,19 @@ class ManagerBasedContinuousEnv(ManagerBasedRLStepEnv):
             self._reset_idx(reset_env_ids)
             self._cache_articulations()
             print(f"Resetting env_ids: {reset_env_ids.tolist()}")
+        self._check_collect_step_deadline("environment reset")
         # -- update command
         self.command_manager.compute(dt=self.step_dt)
+        self._check_collect_step_deadline("command update")
         # -- step interval events
         if "interval" in self.event_manager.available_modes:
             self.event_manager.apply(mode="interval", dt=self.step_dt)
+        self._check_collect_step_deadline("interval events")
         # -- compute observations
         # note: done after reset to get the correct observations for reset envs
+        self._check_collect_step_deadline("observation computation")
         self.obs_buf = self.observation_manager.compute()
+        self._check_collect_step_deadline("observation computation")
 
         # return observations, rewards, resets and extras
         return self.obs_buf, self.reward_buf, self.reset_terminated, self.reset_time_outs, self.extras

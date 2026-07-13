@@ -18,33 +18,75 @@ from custom_lab.managers.action_counter_manager import ActionCounterTerm
 import carb
 import numpy as np
 
-# CuRobo
-# from curobo.wrap.reacher.ik_solver import IKSolver, IKSolverConfig
-from curobo.geom.sdf.world import CollisionCheckerType
-from curobo.geom.types import WorldConfig
-from curobo.types.base import TensorDeviceType
-from curobo.types.math import Pose
-from curobo.types.state import JointState
-from curobo.util.logger import log_error, setup_curobo_logger
-from curobo.util.usd_helper import UsdHelper
-from curobo.util_file import (
-    get_assets_path,
-    get_filename,
-    get_path_of_dir,
-    get_robot_configs_path,
-    get_world_configs_path,
-    join_path,
-    load_yaml,
-)
-from curobo.wrap.reacher.motion_gen import (
-    MotionGen,
-    MotionGenConfig,
-    MotionGenPlanConfig,
-    PoseCostMetric,
-)
-from curobo.wrap.reacher.mpc import MpcSolver, MpcSolverConfig
-from curobo.rollout.rollout_base import Goal
-from curobo.types.camera import CameraObservation
+_CUROBO_LOADED = False
+
+
+def _require_curobo() -> None:
+    """Load collection-only CuRobo dependencies when the action is constructed."""
+    global _CUROBO_LOADED
+    if _CUROBO_LOADED:
+        return
+
+    try:
+        from curobo.geom.sdf.world import CollisionCheckerType as _CollisionCheckerType
+        from curobo.geom.types import WorldConfig as _WorldConfig
+        from curobo.rollout.rollout_base import Goal as _Goal
+        from curobo.types.base import TensorDeviceType as _TensorDeviceType
+        from curobo.types.camera import CameraObservation as _CameraObservation
+        from curobo.types.math import Pose as _Pose
+        from curobo.types.state import JointState as _JointState
+        from curobo.util.logger import log_error as _log_error
+        from curobo.util.logger import setup_curobo_logger as _setup_curobo_logger
+        from curobo.util.usd_helper import UsdHelper as _UsdHelper
+        from curobo.util_file import get_assets_path as _get_assets_path
+        from curobo.util_file import get_filename as _get_filename
+        from curobo.util_file import get_path_of_dir as _get_path_of_dir
+        from curobo.util_file import get_robot_configs_path as _get_robot_configs_path
+        from curobo.util_file import get_world_configs_path as _get_world_configs_path
+        from curobo.util_file import join_path as _join_path
+        from curobo.util_file import load_yaml as _load_yaml
+        from curobo.wrap.reacher.motion_gen import MotionGen as _MotionGen
+        from curobo.wrap.reacher.motion_gen import MotionGenConfig as _MotionGenConfig
+        from curobo.wrap.reacher.motion_gen import MotionGenPlanConfig as _MotionGenPlanConfig
+        from curobo.wrap.reacher.motion_gen import PoseCostMetric as _PoseCostMetric
+        from curobo.wrap.reacher.mpc import MpcSolver as _MpcSolver
+        from curobo.wrap.reacher.mpc import MpcSolverConfig as _MpcSolverConfig
+    except ModuleNotFoundError as exc:
+        if exc.name == "curobo" or (exc.name is not None and exc.name.startswith("curobo.")):
+            raise ModuleNotFoundError(
+                "CuroboInteractionAction requires CuRobo. Install the full "
+                "InsightBench environment with install.sh for data collection."
+            ) from exc
+        raise
+
+    globals().update(
+        {
+            "CameraObservation": _CameraObservation,
+            "CollisionCheckerType": _CollisionCheckerType,
+            "Goal": _Goal,
+            "JointState": _JointState,
+            "MotionGen": _MotionGen,
+            "MotionGenConfig": _MotionGenConfig,
+            "MotionGenPlanConfig": _MotionGenPlanConfig,
+            "MpcSolver": _MpcSolver,
+            "MpcSolverConfig": _MpcSolverConfig,
+            "Pose": _Pose,
+            "PoseCostMetric": _PoseCostMetric,
+            "TensorDeviceType": _TensorDeviceType,
+            "UsdHelper": _UsdHelper,
+            "WorldConfig": _WorldConfig,
+            "get_assets_path": _get_assets_path,
+            "get_filename": _get_filename,
+            "get_path_of_dir": _get_path_of_dir,
+            "get_robot_configs_path": _get_robot_configs_path,
+            "get_world_configs_path": _get_world_configs_path,
+            "join_path": _join_path,
+            "load_yaml": _load_yaml,
+            "log_error": _log_error,
+            "setup_curobo_logger": _setup_curobo_logger,
+        }
+    )
+    _CUROBO_LOADED = True
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
@@ -64,6 +106,7 @@ class CuroboInteractionAction(ActionCounterTerm):
     """The scaling factor applied to the input action. Shape is (1, action_dim)."""
 
     def __init__(self, cfg: actions_cfg.HybridDifferentialInverseKinematicsActionCfg, env: ManagerBasedEnv):
+        _require_curobo()
         # initialize the action term
         super().__init__(cfg, env)
 

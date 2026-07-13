@@ -1,14 +1,16 @@
 # SmolVLA policy evaluation configuration.
 # SmolVLA uses a 16-dim state: [ee_pos(3) + ee_quat(4) + joint_pos(9)], state_start_idx=0.
 #
-# checkpoint must be overridden with a verified HuggingFace repo ID or local path.
-# Optional local dataset stats cache:
-#   policy.dataset_stats_root=data/paragon7060/INSIGHTfixpos
+# checkpoint and dataset stats must be overridden with verified sources.
+# Dataset stats can come from a Hub dataset repo or a local LeRobot dataset root.
+# Hub example: policy.dataset_stats_repo=your-hf-user-or-org/dataset-repo
+# Local example: policy.dataset_stats_root=path/to/lerobot-dataset
 
 policy:
   type: smolvla
   checkpoint: ""  # Required: override with a verified Hub repo ID or local checkpoint path.
-  dataset_stats_repo: "paragon7060/INSIGHTfixpos"
+  dataset_stats_repo: ""  # Required: override this or dataset_stats_root.
+  dataset_stats_root: ""  # Required alternative: local dataset root with meta/stats.json.
   state_start_idx: 0
   state_dim: 16
   action_dim: 8

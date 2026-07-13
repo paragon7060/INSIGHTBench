@@ -1,8 +1,12 @@
 """Unified environment builder — replaces build_test_env() in all evaluation scripts."""
 
 from __future__ import annotations
+from copy import deepcopy
 from typing import Tuple
 
+
+EVAL_GUIDE_CAMERA_HEIGHT = 224
+EVAL_GUIDE_CAMERA_WIDTH = 224
 
 TASK_LIBS: dict[str, list[str]] = {
     "door":   ["3a", "3b", "3c", "3d"],
@@ -14,6 +18,17 @@ ASSET_DIRS: dict[str, str] = {
     "door":    "./Assets/TestSuite/door_suite",
     "bottle":  "./Assets/TestSuite/bottle_suite",
 }
+
+
+def _set_eval_guide_camera_resolution(scene_cfg) -> None:
+    """Use 224x224 guide-camera observations for evaluation."""
+    camera_cfg = getattr(scene_cfg, "camera_guide", None)
+    if camera_cfg is None:
+        return
+
+    scene_cfg.camera_guide = deepcopy(camera_cfg)
+    scene_cfg.camera_guide.height = EVAL_GUIDE_CAMERA_HEIGHT
+    scene_cfg.camera_guide.width = EVAL_GUIDE_CAMERA_WIDTH
 
 
 def build_env(
@@ -94,6 +109,7 @@ def build_env(
         )
 
     scene_key = info["scene_key"]
+    _set_eval_guide_camera_resolution(scene_cfg)
     scene_cfg.num_envs = num_envs
     scene_cfg.env_spacing = 3.0
 

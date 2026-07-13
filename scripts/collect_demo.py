@@ -49,6 +49,10 @@ parser.add_argument("--skill_timeout_s", type=float, default=0.0, help="Abort on
 parser.add_argument("--no_frame_write", "--dry_run_frames", dest="no_frame_write", action="store_true", help="Run env.step but skip LeRobot frame/image writes for smoke debugging.")
 parser.add_argument("--collect_decimation", type=int, default=300, help="Physics substeps per collect action step.")
 parser.add_argument("--collect_render_interval", type=int, default=0, help="Render interval in physics steps; 0 matches collect_decimation for one camera render per action step.")
+parser.add_argument("--smoke_action_steps", type=int, default=0, help="Smoke-only: execute this many planned action steps, then finish without continuing the trajectory. 0 disables smoke mode.")
+parser.add_argument("--smoke_decimation", type=int, default=10, help="Smoke-only physics substeps per action step (1-20; default: 10).")
+parser.add_argument("--smoke_step_timeout_s", type=float, default=60.0, help="Smoke-only per env.step deadline checked inside the physics loop.")
+parser.add_argument("--smoke_save_episode", action="store_true", help="Smoke-only: save the partial frame-write episode after the action-step limit. Requires frame writing.")
 AppLauncher.add_app_launcher_args(parser)
 
 args_cli, _ = parser.parse_known_args()
@@ -69,6 +73,7 @@ from datasets import disable_caching
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
 from insightbench.utils.lerobot_compat import add_frame as _lerobot_add_frame, lerobot_version
+from insightbench.utils.collect_smoke import CollectTiming, resolve_collect_timing
 print(f"[collect_demo] lerobot version: {lerobot_version()}")
 
 from cfg.BaseCfg import ActionsCfg, ContinuousJointActionsCfg, TerminationsCfg, CommandsCfg, ObsCfg
@@ -225,6 +230,89 @@ def _clear_episode(dataset: LeRobotDataset, episode_buffer: dict) -> None:
             shutil.rmtree(img_dir)
 
 
+def _finish_smoke_episode(
+    dataset: LeRobotDataset,
+    episode_buffers: list[dict],
+    *,
+    no_frame_write: bool,
+    smoke_save_episode: bool,
+    executed_action_steps: int,
+) -> int:
+    """Finalize a bounded smoke rollout without applying production success rules."""
+    if no_frame_write:
+        for episode_buffer in episode_buffers:
+            _clear_episode(dataset, episode_buffer)
+        print(
+            f"[CollectSmoke] completed action_steps={executed_action_steps}; "
+            "no_frame_write=True, dataset.save_episode skipped",
+            flush=True,
+        )
+        return 0
+
+    if smoke_save_episode:
+        for episode_buffer in episode_buffers:
+            dataset.save_episode(episode_buffer)
+        print(
+            f"[CollectSmoke] completed action_steps={executed_action_steps}; "
+            f"saved {len(episode_buffers)} partial frame-write episode(s)",
+            flush=True,
+        )
+        return len(episode_buffers)
+
+    for episode_buffer in episode_buffers:
+        _clear_episode(dataset, episode_buffer)
+    print(
+        f"[CollectSmoke] completed action_steps={executed_action_steps}; "
+        "frame writes validated, dataset.save_episode skipped",
+        flush=True,
+    )
+    return 0
+
+
+def _step_env_with_collect_trace(
+    env: ManagerBasedContinuousEnv,
+    action_batch: torch.Tensor,
+    *,
+    phase: str,
+    step_idx: int,
+    action_idx: int,
+    trace_steps: bool,
+    smoke_step_timeout_s: float | None,
+):
+    """Run one env step with optional smoke deadline and before/after evidence."""
+    if trace_steps:
+        print(
+            f"[EnvStepBegin] phase={phase} step_idx={step_idx} action_idx={action_idx} "
+            f"shape={tuple(action_batch.shape)} decimation={env.cfg.decimation} "
+            f"render_interval={env.cfg.sim.render_interval}",
+            flush=True,
+        )
+
+    if smoke_step_timeout_s is not None:
+        env._collect_step_deadline_s = time.perf_counter() + smoke_step_timeout_s
+    env_step_start = time.perf_counter()
+    try:
+        step_result = env.step(action_batch)
+    except TimeoutError as exc:
+        print(
+            f"[CollectSmokeAbort] phase={phase} step_idx={step_idx} action_idx={action_idx} "
+            f"reason={exc}",
+            flush=True,
+        )
+        raise
+    finally:
+        env._collect_step_deadline_s = None
+
+    elapsed = time.perf_counter() - env_step_start
+    if trace_steps:
+        print(
+            f"[EnvStepEnd] phase={phase} step_idx={step_idx} action_idx={action_idx} "
+            f"elapsed={elapsed:.2f}s",
+            flush=True,
+        )
+    return step_result, elapsed
+
+
 def _create_or_load_dataset(name: str, fps: int, root: str) -> LeRobotDataset:
     features = {
         "observation.images.wrist":          {"dtype": "image", "shape": (224, 224, 3), "names": ["height", "width", "channel"]},
@@ -365,10 +453,14 @@ def _collect_one_episode(
     progress_interval: int = 10,
     skill_timeout_s: float | None = None,
     no_frame_write: bool = False,
+    smoke_action_steps: int = 0,
+    smoke_step_timeout_s: float | None = None,
+    smoke_save_episode: bool = False,
 ) -> int:
     obs_batch, _ = env.reset()
     episode_buffers = [dataset.create_episode_buffer(dataset.meta.total_episodes + i) for i in range(env.num_envs)]
     success_tracker = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+    trace_steps = debug_collect or smoke_action_steps > 0
 
     skill_seq = SCENE_ACTION_CONFIG[scene_key]["skill_sequence"]
     reward_threshold = REWARD_FOR_SCENE_KEY[scene_key[0]]
@@ -376,9 +468,23 @@ def _collect_one_episode(
     curobo_mg.gripper_reset()
     # Hold current joint positions for initial settle steps (no CuRobo needed)
     noop_batch = env.scene["robot"].data.joint_pos[:, :9].clone()
-    for _ in range(5):
-        obs_batch, _, _, _, _ = env.step(noop_batch)
+    for settle_idx in range(5):
+        try:
+            (obs_batch, _, _, _, _), _ = _step_env_with_collect_trace(
+                env,
+                noop_batch,
+                phase="settle",
+                step_idx=-1,
+                action_idx=settle_idx + 1,
+                trace_steps=trace_steps,
+                smoke_step_timeout_s=smoke_step_timeout_s,
+            )
+        except TimeoutError:
+            for episode_buffer in episode_buffers:
+                _clear_episode(dataset, episode_buffer)
+            return 0
 
+    executed_action_steps = 0
     for step_idx in range(len(skill_seq)):
         if obj_name == "cabinet":
             action_list = info.get("action_list")
@@ -451,9 +557,20 @@ def _collect_one_episode(
                     action_parts.append(traj_js.position[t_idx])
                 traj_counters[env_i] += 1
             action_batch = torch.stack(action_parts)
-            env_step_start = time.perf_counter()
-            obs_batch, rew_b, done_b, _, _ = env.step(action_batch)
-            last_env_step_s = time.perf_counter() - env_step_start
+            try:
+                (obs_batch, rew_b, done_b, _, _), last_env_step_s = _step_env_with_collect_trace(
+                    env,
+                    action_batch,
+                    phase="trajectory",
+                    step_idx=step_idx,
+                    action_idx=t + 1,
+                    trace_steps=trace_steps,
+                    smoke_step_timeout_s=smoke_step_timeout_s,
+                )
+            except TimeoutError:
+                for episode_buffer in episode_buffers:
+                    _clear_episode(dataset, episode_buffer)
+                return 0
 
             step_rew = env.reward_manager._step_reward.squeeze(-1)
             _rew_val = step_rew.max().item()
@@ -498,6 +615,16 @@ def _collect_one_episode(
                     flush=True,
                 )
 
+            executed_action_steps += 1
+            if smoke_action_steps and executed_action_steps >= smoke_action_steps:
+                return _finish_smoke_episode(
+                    dataset,
+                    episode_buffers,
+                    no_frame_write=no_frame_write,
+                    smoke_save_episode=smoke_save_episode,
+                    executed_action_steps=executed_action_steps,
+                )
+
         print(f"[Skill done] step_idx={step_idx} skill={skill_seq[step_idx]} max_rew={_max_rew_this_skill:.6f}", flush=True)
 
     num_success = 0
@@ -523,6 +650,21 @@ def _collect_one_episode(
 def main() -> None:
     args = args_cli
 
+    try:
+        collect_timing: CollectTiming = resolve_collect_timing(
+            collect_decimation=args.collect_decimation,
+            collect_render_interval=args.collect_render_interval,
+            smoke_action_steps=args.smoke_action_steps,
+            smoke_decimation=args.smoke_decimation,
+            smoke_step_timeout_s=args.smoke_step_timeout_s,
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
+    if args.smoke_save_episode and not collect_timing.smoke_enabled:
+        parser.error("--smoke_save_episode requires --smoke_action_steps > 0")
+    if args.smoke_save_episode and args.no_frame_write:
+        parser.error("--smoke_save_episode requires frame writing; remove --no_frame_write")
+
     output_dir = f"./data/{args.dataset_name}"
     dataset = _create_or_load_dataset(args.dataset_name, args.fps, output_dir)
 
@@ -533,8 +675,8 @@ def main() -> None:
         args.num_envs,
         args.no_guide,
         args.pos_rand,
-        args.collect_decimation,
-        args.collect_render_interval,
+        collect_timing.decimation,
+        collect_timing.render_interval,
         args.asset_dir,
     )
     event_key = _collect_event_key(scene_key, args.pos_rand)
@@ -559,6 +701,14 @@ def main() -> None:
 
     collected, loops = 0, 0
     print(f"[Collect] Target: {args.target_episodes} episodes  Max loops: {args.max_loops}")
+    if collect_timing.smoke_enabled:
+        print(
+            f"[CollectSmoke] action_steps={collect_timing.smoke_action_steps} "
+            f"decimation={collect_timing.decimation} render_interval={collect_timing.render_interval} "
+            f"step_timeout_s={collect_timing.smoke_step_timeout_s:g} "
+            f"frame_write={not args.no_frame_write} save_episode={args.smoke_save_episode}",
+            flush=True,
+        )
     if args.debug_collect or args.no_frame_write or (args.skill_timeout_s and args.skill_timeout_s > 0):
         print(
             f"[Collect] debug_collect={args.debug_collect} progress_interval={args.progress_interval} "
@@ -583,6 +733,9 @@ def main() -> None:
             progress_interval=args.progress_interval,
             skill_timeout_s=args.skill_timeout_s,
             no_frame_write=args.no_frame_write,
+            smoke_action_steps=collect_timing.smoke_action_steps,
+            smoke_step_timeout_s=collect_timing.smoke_step_timeout_s,
+            smoke_save_episode=args.smoke_save_episode,
         )
         collected += n
         loops += 1

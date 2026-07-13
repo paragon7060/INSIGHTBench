@@ -11,7 +11,7 @@ import PIL.Image
 import torch
 from lerobot.datasets.lerobot_dataset import LeRobotDatasetMetadata
 from lerobot.policies.pi0.modeling_pi0 import PI0Policy
-from lerobot.constants import OBS_STATE
+from lerobot.utils.constants import OBS_STATE
 
 from insightbench.policies.base import PolicyBase
 from insightbench.policies.pi0 import Pi0Wrapper

@@ -3,15 +3,21 @@
 
 torch>=2.0
 torchvision>=0.15
-numpy>=1.24
+numpy>=1.24,<2
 omegaconf>=2.3
-opencv-python>=4.8
-Pillow>=9.0
+opencv-python-headless==4.11.0.86
+Pillow==11.2.1
 packaging>=21.0
+transformers==4.57.1
+botocore
+click
 
-# LeRobot — must use the InsightBench-compatible fork:
-#   pip install git+https://github.com/YOUR_ORG/lerobot.git
-# Do NOT install official PyPI lerobot (incompatible dataset_stats API and no GuideVLA).
+# LeRobot — install the unified GROOT-capable baseline separately:
+#   git clone https://github.com/huggingface/lerobot.git /path/to/lerobot
+#   git -C /path/to/lerobot checkout f6b16f6d97155e3ce34ab2a1ec145e9413588197
+#   pip install -e "/path/to/lerobot[pi,smolvla,groot]"
+# Do NOT install official PyPI lerobot or latest upstream 0.6.x in the IsaacLab
+# runtime; this release is pinned to the Python 3.11 / NumPy 1.x baseline above.
 
 # Optional (InstructionGPT policy only):
 openai>=1.0
