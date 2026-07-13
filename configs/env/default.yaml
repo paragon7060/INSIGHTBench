@@ -1,0 +1,21 @@
+# Default Isaac Lab environment settings for InsightBench evaluation.
+# These are applied after build_env() constructs the env config.
+
+episode_length_s: 100
+decimation: 12
+sim_dt: 0.00833333  # 1/120
+
+scene:
+  num_envs: 8
+  env_spacing: 3.0
+
+physx:
+  gpu_max_rigid_patch_count: 262144  # 2**18
+
+robot:
+  gripper_stiffness: 2000.0  # panda_hand position control stiffness
+
+curobo:
+  warmup_steps: 10  # noop steps before policy inference begins
+
+seed: 42

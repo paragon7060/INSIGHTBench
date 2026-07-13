@@ -1,0 +1,25 @@
+# Diffusion Policy evaluation configuration.
+# Images are resized to 224×224 before inference (handled automatically by DiffusionWrapper).
+#
+# checkpoint must be overridden with a verified HuggingFace repo ID or local path.
+# Optional local dataset stats cache:
+#   policy.dataset_stats_root=data/paragon7060/INSIGHTfixpos
+
+policy:
+  type: diffusion
+  checkpoint: ""  # Required: override with a verified Hub repo ID or local checkpoint path.
+  dataset_stats_repo: "paragon7060/INSIGHTfixpos"
+  state_start_idx: 7
+  state_dim: 8
+  action_dim: 8
+  infer_type: "guide"
+  guide_cam: true
+
+eval:
+  query_freq: 10
+  eval_steps: 100
+  num_episodes: 1
+  fps: 10
+  save_video: true
+  video_dir: "./outputs/videos/diffusion"
+  results_dir: "./outputs/results/diffusion"

@@ -1,0 +1,36 @@
+# Bottle manipulation task configuration.
+
+object: bottle
+asset_dir: ./Assets/TestSuite/bottle_suite
+
+# task_idx indexes into task_lib: 0→5a, 1→5b, ..., 7→5h.
+# Tasks 5d/5e/5f/5h are close-bottle tasks; the rest are open-bottle.
+task_lib:
+  - "5a"
+  - "5b"
+  - "5c"
+  - "5d"
+  - "5e"
+  - "5f"
+  - "5g"
+  - "5h"
+
+close_tasks:
+  - "5d"
+  - "5e"
+  - "5f"
+  - "5h"
+
+seen_assets:
+  - "14b"
+  - "3b"
+  - "6b"
+  - "b17"
+  - "b8"
+
+unseen_assets:
+  - "5b"
+  - "1b"
+  - "b31"
+  - "b18"
+  - "b4"

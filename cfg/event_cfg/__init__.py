@@ -1,0 +1,1 @@
+"""Event configuration helpers."""

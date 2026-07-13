@@ -1,0 +1,26 @@
+# Pi0 no-guide policy evaluation configuration.
+#
+# checkpoint must be overridden with a public HuggingFace repo ID or local path.
+# Use policy.dataset_stats_root=local-dataset-dir only when you want to use a
+# local dataset stats cache instead of downloading stats from dataset_stats_repo.
+
+policy:
+  type: pi0
+  checkpoint: ""  # Required: override with a verified Hub repo ID or local checkpoint path.
+  checkpoint_subfolder: ""  # Optional: override when loading a pretrained_model subfolder from Hub.
+  dataset_stats_repo: "paragon7060/INSIGHTfixpos"
+  state_start_idx: 7
+  state_dim: 8
+  action_dim: 8
+  # infer_type: guide | instruction | sem | noguide | reverse
+  infer_type: "guide"
+  guide_cam: true
+
+eval:
+  query_freq: 10
+  eval_steps: 100
+  num_episodes: 1
+  fps: 10
+  save_video: true
+  video_dir: "./outputs/videos/pi0"
+  results_dir: "./outputs/results/pi0"

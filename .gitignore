@@ -1,0 +1,62 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+
+# Virtual envs
+.venv/
+/env/
+/venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Isaac Sim / NVIDIA cache
+.nvidia-omniverse/
+nucleus_cache/
+kit/
+_build/
+
+# Large data — never commit these
+ckpt/
+data/
+data
+${data}/
+Assets/
+Assets
+InsightBench-Assets-Staging/
+
+# Evaluation outputs
+outputs/
+output/
+evaluation_results/
+evaluation_logs/
+evaluation_videos/
+results_datagen/
+retry_list.sh
+
+# GPT debug dumps (may contain proprietary task images)
+outputs/gpt_debug/
+
+# Logs
+*.log
+collection_log_*.txt
+nohup.out
+
+# Local tooling
+.agents/
+.codex/
+.pytest_cache/
+
+# OS
+.DS_Store
+Thumbs.db

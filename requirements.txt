@@ -1,0 +1,17 @@
+# InsightBench dependencies
+# Install Isaac Lab separately: https://github.com/isaac-sim/IsaacLab
+
+torch>=2.0
+torchvision>=0.15
+numpy>=1.24
+omegaconf>=2.3
+opencv-python>=4.8
+Pillow>=9.0
+packaging>=21.0
+
+# LeRobot — must use the InsightBench-compatible fork:
+#   pip install git+https://github.com/YOUR_ORG/lerobot.git
+# Do NOT install official PyPI lerobot (incompatible dataset_stats API and no GuideVLA).
+
+# Optional (InstructionGPT policy only):
+openai>=1.0

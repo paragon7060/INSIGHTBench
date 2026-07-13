@@ -1,0 +1,25 @@
+# Door manipulation task configuration.
+
+object: door
+asset_dir: ./Assets/TestSuite/door_suite
+
+# task_idx indexes into task_lib: 0→3a, 1→3b, 2→3c, 3→3d.
+task_lib:
+  - "3a"
+  - "3b"
+  - "3c"
+  - "3d"
+
+# NOTE: 99655089960011l excluded — confirmed problematic asset.
+seen_assets:
+  - "99660039960014l"
+  - "99660039962007"
+  - "99689039960045l"
+  - "99690419962024"
+  - "99691179960010l"
+
+unseen_assets:
+  - "99655079960021l"
+  - "99655079962019"
+  - "99660059960030l"
+  - "99660099962042"

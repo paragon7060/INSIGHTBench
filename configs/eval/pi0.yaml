@@ -1,0 +1,37 @@
+# Pi0 policy evaluation configuration.
+#
+# checkpoint must be overridden with a public HuggingFace repo ID or local path.
+# checkpoint_subfolder is needed only when the Hub repo stores the pretrained
+# model below a subdirectory.
+#
+# Hub example:
+#   policy.checkpoint=your-hf-user-or-org/pi0-repo
+#   policy.checkpoint_subfolder=pi0_guide_v7/checkpoints/050000/pretrained_model
+#
+# Local example:
+#   policy.checkpoint=ckpt/pi0_guide_v7/checkpoints/050000/pretrained_model
+#   policy.checkpoint_subfolder=
+#
+# Optional local dataset stats cache:
+#   policy.dataset_stats_root=data/paragon7060/INSIGHTfixpos_v3
+
+policy:
+  type: pi0
+  checkpoint: "/mntvol1/INSIGHTBench/ckpt/pi0_v5_s50/checkpoints/050000/pretrained_model"
+  checkpoint_subfolder: ""  # Optional: override when loading a pretrained_model subfolder from Hub.
+  dataset_stats_repo: "paragon7060/INSIGHTfixposV3"
+  state_start_idx: 7
+  state_dim: 8
+  action_dim: 8
+  # infer_type: guide | instruction | sem | noguide | reverse
+  infer_type: "guide"
+  guide_cam: true
+
+eval:
+  query_freq: 10
+  eval_steps: 100
+  num_episodes: 1
+  fps: 10
+  save_video: true
+  video_dir: "./outputs/videos/pi0"
+  results_dir: "./outputs/results/pi0"

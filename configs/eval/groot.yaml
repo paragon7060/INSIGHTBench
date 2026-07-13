@@ -1,0 +1,20 @@
+# GR00T policy evaluation configuration.
+# GR00T handles normalisation internally — no dataset stats needed.
+# Pre/post-processor pipelines are loaded directly from the checkpoint (Hub or local).
+# checkpoint must be overridden with a verified HuggingFace repo ID or local path.
+
+policy:
+  type: groot
+  checkpoint: ""  # Required: override with a verified Hub repo ID or local checkpoint path.
+  action_dim: 8
+  infer_type: "guide"
+  guide_cam: true
+
+eval:
+  query_freq: 10
+  eval_steps: 100
+  num_episodes: 1
+  fps: 10
+  save_video: true
+  video_dir: "./outputs/videos/groot"
+  results_dir: "./outputs/results/groot"

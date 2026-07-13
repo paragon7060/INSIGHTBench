@@ -1,0 +1,30 @@
+# Cabinet manipulation task configuration.
+
+object: cabinet
+asset_dir: ./Assets/TestSuite/cabinet_suite
+
+# Cabinet uses integer task names ("0", "1", ...) — no fixed task_lib list.
+# task_idx is passed directly as the task name string.
+task_lib: null
+
+# Per-asset number of tasks (drawer count varies by model).
+# Used by the batch evaluation script to know how many task_idx to sweep.
+# NOTE: 45194 excluded (confirmed problematic asset).
+#       45135 has 3 tasks only (not 4).
+asset_task_counts:
+  "46130": 6
+  "45677": 4
+  "45135": 3
+  "19179": 2
+  "31249": 4
+  "34178": 4
+
+seen_assets:
+  - "46130"
+  - "45677"
+  - "45135"
+
+unseen_assets:
+  - "19179"
+  - "31249"
+  - "34178"

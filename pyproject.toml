@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "insightbench"
+version = "1.0.0"
+description = "A benchmark for evaluating robot manipulation policies with visual guides"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+keywords = ["robotics", "manipulation", "benchmark", "imitation-learning", "isaac-sim"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "torch>=2.0",
+    "torchvision>=0.15",
+    "numpy>=1.24",
+    "omegaconf>=2.3",
+    "opencv-python>=4.8",
+    "Pillow>=9.0",
+    "packaging>=21.0",
+    # lerobot: install the InsightBench-compatible fork (see README Installation)
+    # pip install git+https://github.com/YOUR_ORG/lerobot.git
+    "openai>=1.0",  # optional: only required for instruction_gpt policy
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "pre-commit", "isort", "black"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = [
+    "insightbench*",
+    "cfg*",
+    "custom_lab*",
+    "interact*",
+    "demo_gen*",
+    "insight_task_suite*",
+]
+
+[tool.setuptools.package-data]
+insightbench = ["py.typed"]

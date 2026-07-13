@@ -1,0 +1,28 @@
+# InstructionGPT evaluation configuration.
+# Generates language instructions from the guide-camera image via GPT-4o,
+# then executes actions with Pi0.
+# Requires: OPENAI_API_KEY environment variable (never hardcode the key).
+# checkpoint must be overridden with a verified Pi0 HuggingFace repo ID or local path.
+# Optional local dataset stats cache:
+#   policy.dataset_stats_root=data/paragon7060/INSIGHTfixpos
+
+policy:
+  type: instruction_gpt
+  checkpoint: ""  # Required: override with a verified Pi0 Hub repo ID or local checkpoint path.
+  dataset_stats_repo: "paragon7060/INSIGHTfixpos"
+  state_start_idx: 7
+  state_dim: 8
+  action_dim: 8
+  infer_type: "instruction"
+  guide_cam: true
+  gpt_model: "gpt-4o"
+  debug_dir: "./outputs/gpt_debug"
+
+eval:
+  query_freq: 10
+  eval_steps: 100
+  num_episodes: 1
+  fps: 10
+  save_video: true
+  video_dir: "./outputs/videos/instruction_gpt"
+  results_dir: "./outputs/results/instruction_gpt"

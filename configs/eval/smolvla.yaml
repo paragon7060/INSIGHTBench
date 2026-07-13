@@ -1,0 +1,25 @@
+# SmolVLA policy evaluation configuration.
+# SmolVLA uses a 16-dim state: [ee_pos(3) + ee_quat(4) + joint_pos(9)], state_start_idx=0.
+#
+# checkpoint must be overridden with a verified HuggingFace repo ID or local path.
+# Optional local dataset stats cache:
+#   policy.dataset_stats_root=data/paragon7060/INSIGHTfixpos
+
+policy:
+  type: smolvla
+  checkpoint: ""  # Required: override with a verified Hub repo ID or local checkpoint path.
+  dataset_stats_repo: "paragon7060/INSIGHTfixpos"
+  state_start_idx: 0
+  state_dim: 16
+  action_dim: 8
+  infer_type: "guide"
+  guide_cam: true
+
+eval:
+  query_freq: 10
+  eval_steps: 100
+  num_episodes: 1
+  fps: 10
+  save_video: true
+  video_dir: "./outputs/videos/smolvla"
+  results_dir: "./outputs/results/smolvla"
