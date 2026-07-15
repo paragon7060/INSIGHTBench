@@ -17,6 +17,7 @@
 #   --gpu      <id>     single GPU id                (default: 0)
 #   --gpus     <ids>    comma-separated GPU ids      (overrides --gpu)
 #   --log_dir  <path>   per-run log directory        (default: ./outputs/eval_logs)
+#   --override <k=v>    OmegaConf override; repeat for multiple values
 #   --pos_rand          enable object position randomization on each reset (default: off)
 #
 # All output is logged per-run to $LOG_DIR/<object>_<asset>_task<n>.log
@@ -30,6 +31,7 @@ NUM_ENVS=8
 GPUS="0"
 LOG_DIR="./outputs/eval_logs"
 POS_RAND=""
+OVERRIDES=()
 
 # ─── Parse flags ──────────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
@@ -39,6 +41,7 @@ while [[ $# -gt 0 ]]; do
         --gpu)      GPUS="$2";        shift 2 ;;
         --gpus)     GPUS="$2";        shift 2 ;;
         --log_dir)  LOG_DIR="$2";     shift 2 ;;
+        --override) OVERRIDES+=("$2"); shift 2 ;;
         --pos_rand) POS_RAND="--pos_rand"; shift 1 ;;
         *) echo "Unknown flag: $1" >&2; exit 1 ;;
     esac
@@ -77,6 +80,7 @@ TOTAL=${#JOB_OBJECTS[@]}
 echo "Total jobs : $TOTAL"
 echo "GPUs       : ${GPU_LIST[*]}"
 echo "Jobs/GPU   : $(( (TOTAL + NUM_GPUS - 1) / NUM_GPUS )) (approx)"
+echo "Overrides  : ${#OVERRIDES[@]}"
 echo ""
 
 # ─── Per-GPU worker function ───────────────────────────────────────────────────
@@ -95,21 +99,30 @@ run_gpu_worker() {
 
         echo "[GPU$GPU_ID] ($((job_idx+1))/$TOTAL) $OBJECT / $ASSET / task$TASK"
 
-        CMD="PYTHONUNBUFFERED=1 CUDA_VISIBLE_DEVICES=$GPU_ID python scripts/evaluate.py \
-            --config $CONFIG \
-            --object $OBJECT \
-            --asset_path $ASSET \
-            --task_idx $TASK \
-            --num_envs $NUM_ENVS \
-            $POS_RAND \
-            --enable_cameras --headless"
+        local CMD=(
+            env
+            "PYTHONUNBUFFERED=1"
+            "CUDA_VISIBLE_DEVICES=$GPU_ID"
+            python scripts/evaluate.py
+            --config "$CONFIG"
+            --object "$OBJECT"
+            --asset_path "$ASSET"
+            --task_idx "$TASK"
+            --num_envs "$NUM_ENVS"
+        )
+        if [[ -n "$POS_RAND" ]]; then
+            CMD+=("$POS_RAND")
+        fi
+        CMD+=(--enable_cameras --headless)
+        CMD+=("${OVERRIDES[@]}")
 
-        if eval "$CMD" > "$LOG" 2>&1; then
+        if "${CMD[@]}" > "$LOG" 2>&1; then
             echo "[GPU$GPU_ID]   OK"
         else
             echo "[GPU$GPU_ID]   FAILED — $LOG"
             echo "# $OBJECT $ASSET task$TASK" >> "$FAILED_LOG"
-            echo "$CMD" >> "$FAILED_LOG"
+            printf '%q ' "${CMD[@]}" >> "$FAILED_LOG"
+            printf '\n' >> "$FAILED_LOG"
         fi
 
         job_idx=$(( job_idx + NUM_GPUS ))

@@ -25,7 +25,16 @@ _OBS_STATE_BUILDERS = {
         [p["ee_position"], p["ee_quat"], p["joint_pos"], p["joint_vel"], p["actions"]], dim=1
     )[:, :-2],
     "groot060_client": lambda p: torch.cat(
-        [p["ee_position"], _quat_wxyz_to_rot6d(p["ee_quat"]), p["joint_pos"][:, 7:9].mean(dim=1, keepdim=True), p["joint_pos"][:, :7]], dim=1
+        [
+            p["ee_position"],
+            _quat_wxyz_to_rot6d(p["ee_quat"]),
+            p["joint_pos"][:, 7:9].mean(dim=1, keepdim=True),
+            p["joint_pos"][:, :7],
+        ],
+        dim=1,
+    ),
+    "groot060_insight_client": lambda p: torch.cat(
+        [p["ee_position"], p["ee_quat"], p["joint_pos"][:, :7], p["joint_pos"][:, 7:9]], dim=1
     ),
 }
 

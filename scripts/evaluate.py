@@ -19,6 +19,11 @@ import argparse
 import os
 import sys
 
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _REPO_ROOT in sys.path:
+    sys.path.remove(_REPO_ROOT)
+sys.path.insert(0, _REPO_ROOT)
+
 from isaaclab.app import AppLauncher
 from omegaconf import OmegaConf
 
@@ -47,8 +52,6 @@ simulation_app = app_launcher.app
 
 # ─── Post-launch imports (Isaac Sim must be running) ──────────────────────────
 import torch
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from cfg.BaseTaskCfg import REWARD_FOR_SCENE_KEY, SCENE_TASK_PROMPT_GUIDE, SCENE_TASK_PROMPT_INSTRUCTION, SCENE_TASK_PROMPT_SEM, SCENE_TASK_PROMPT_INSTRUCTION_REVERSE, SCENE_TASK_PROMPT
 from custom_lab.envs.manager_based_rl_step_env import ManagerBasedContinuousEnv
@@ -136,7 +139,13 @@ def run_episode(
             policy.reset()
 
         action = policy.select_action(obs_state, obs_imgs, task_prompts)
-        # Append gripper action (replicate last dim) to match env's 9-dim joint action
+        expected_action_dim = env.action_manager.total_action_dim - 1
+        if action.ndim != 2 or action.shape[1] != expected_action_dim:
+            raise ValueError(
+                f"Policy returned {tuple(action.shape)}; "
+                f"expected [B, {expected_action_dim}] before gripper replication"
+            )
+        # The policy exposes one logical gripper command; replicate it for the two fingers.
         action = torch.cat([action, action[:, -1].unsqueeze(1)], dim=1)
 
         obs_batch, _, _, _, _ = env.step(action)
@@ -163,7 +172,7 @@ def main() -> None:
 
     policy_cfg = cfg.policy
     eval_cfg   = cfg.eval
-    num_envs   = args.num_envs if args.num_envs is not None else 8
+    num_envs   = args.num_envs if args.num_envs is not None else eval_cfg.get("num_envs", 8)
     seed       = args.seed if args.seed is not None else 42
     num_episodes = eval_cfg.get("num_episodes", 1)
 
@@ -237,7 +246,7 @@ def main() -> None:
             guide_cam=guide_cam,
             query_freq=eval_cfg.get("query_freq", 10),
             eval_steps=eval_cfg.get("eval_steps", 100),
-            warmup_steps=10,
+            warmup_steps=eval_cfg.get("warmup_steps", 10),
             recorder=recorder,
             asset_name=args.asset_path,
             task_name=scene_key,

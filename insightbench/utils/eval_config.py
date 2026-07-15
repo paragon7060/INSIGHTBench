@@ -39,6 +39,36 @@ def validate_required_eval_inputs(cfg, config_path: str) -> None:
             "  policy.checkpoint=local/pretrained_model"
         )
 
+    if policy_type == "groot060_insight_client":
+        required_fields = (
+            "embodiment_tag",
+            "action_space",
+            "infer_type",
+            "state_dim",
+            "action_dim",
+        )
+        missing_fields = [
+            f"policy.{field}"
+            for field in required_fields
+            if is_missing_config_value(OmegaConf.select(policy_cfg, field))
+        ]
+        if is_missing_config_value(OmegaConf.select(cfg, "eval.results_dir")):
+            missing_fields.append("eval.results_dir")
+        if OmegaConf.select(cfg, "eval.save_video", default=False) and is_missing_config_value(
+            OmegaConf.select(cfg, "eval.video_dir")
+        ):
+            missing_fields.append("eval.video_dir")
+        if missing_fields:
+            joined = ", ".join(missing_fields)
+            raise SystemExit(
+                "ERROR: GR00T 0.6 eval requires checkpoint-derived CLI overrides "
+                "before launching Isaac Sim.\n"
+                f"Config: {config_path}\n"
+                f"Missing: {joined}\n"
+                "Inspect the checkpoint with the INSIGHT skill and pass its eval overrides."
+            )
+        return
+
     if policy_type != "smolvla":
         return
 
