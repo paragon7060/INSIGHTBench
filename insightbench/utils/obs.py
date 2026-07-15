@@ -5,6 +5,15 @@ from __future__ import annotations
 import torch
 
 
+def _quat_wxyz_to_rot6d(quat: torch.Tensor) -> torch.Tensor:
+    """Convert scalar-first quaternion batches to the first two rotation columns."""
+    quat = torch.nn.functional.normalize(quat, dim=-1)
+    w, x, y, z = quat.unbind(dim=-1)
+    col0 = torch.stack((1 - 2 * (y.square() + z.square()), 2 * (x * y + w * z), 2 * (x * z - w * y)), dim=-1)
+    col1 = torch.stack((2 * (x * y - w * z), 1 - 2 * (x.square() + z.square()), 2 * (y * z + w * x)), dim=-1)
+    return torch.cat((col0, col1), dim=-1)
+
+
 # Supported policy types and their required obs_state construction
 _OBS_STATE_BUILDERS = {
     "pi0":              lambda p: p["joint_pos"][:, :8],
@@ -15,6 +24,9 @@ _OBS_STATE_BUILDERS = {
     "groot": lambda p: torch.cat(
         [p["ee_position"], p["ee_quat"], p["joint_pos"], p["joint_vel"], p["actions"]], dim=1
     )[:, :-2],
+    "groot060_client": lambda p: torch.cat(
+        [p["ee_position"], _quat_wxyz_to_rot6d(p["ee_quat"]), p["joint_pos"][:, 7:9].mean(dim=1, keepdim=True), p["joint_pos"][:, :7]], dim=1
+    ),
 }
 
 

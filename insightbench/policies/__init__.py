@@ -7,6 +7,7 @@ def load_policy(policy_cfg, device):
         "pi0":             "insightbench.policies.pi0:Pi0Wrapper",
         "diffusion":       "insightbench.policies.diffusion:DiffusionWrapper",
         "groot":           "insightbench.policies.groot:GrootWrapper",
+        "groot060_client": "insightbench.policies.groot060_client:Groot060ClientWrapper",
         "smolvla":         "insightbench.policies.smolvla:SmolVLAWrapper",
         "instruction_gpt": "insightbench.policies.instruction_gpt:InstructionGPTWrapper",
     }

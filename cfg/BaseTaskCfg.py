@@ -144,7 +144,7 @@ SCENE_TASK_PROMPT_GUIDE = {
 
 
 SCENE_TASK_PROMPT_INSTRUCTION = {
-    "1ext": "Find the arrow guide and open the indicated drawer",
+    "1ext": "Find the arrow guide and open the indicated drawer.",
     "3a": "Open the door, rotate clockwise and push.",
     "3b": "Open the door, rotate counter-clockwise and push.",
     "3c": "Open the door, rotate clockwise and pull.",
