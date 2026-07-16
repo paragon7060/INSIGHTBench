@@ -7,6 +7,16 @@ from typing import Tuple
 
 EVAL_GUIDE_CAMERA_HEIGHT = 224
 EVAL_GUIDE_CAMERA_WIDTH = 224
+_EVAL_CAMERA_VIEWS = ("wrist", "right_shoulder", "left_shoulder", "guide")
+_EVAL_NON_RGB_TERMS = (
+    "wrist_depth",
+    "wrist_semantic",
+    "right_shoulder_depth",
+    "right_shoulder_semantic",
+    "left_shoulder_depth",
+    "left_shoulder_semantic",
+    "guide_semantic",
+)
 
 TASK_LIBS: dict[str, list[str]] = {
     "door":   ["3a", "3b", "3c", "3d"],
@@ -29,6 +39,29 @@ def _set_eval_guide_camera_resolution(scene_cfg) -> None:
     scene_cfg.camera_guide = deepcopy(camera_cfg)
     scene_cfg.camera_guide.height = EVAL_GUIDE_CAMERA_HEIGHT
     scene_cfg.camera_guide.width = EVAL_GUIDE_CAMERA_WIDTH
+
+
+def configure_eval_camera_pipeline(env_cfg, required_views: set[str]) -> None:
+    """Keep only required RGB cameras and render once per environment action."""
+    unknown_views = required_views.difference(_EVAL_CAMERA_VIEWS)
+    if unknown_views:
+        raise ValueError(f"Unknown eval camera views: {sorted(unknown_views)}")
+
+    for view in _EVAL_CAMERA_VIEWS:
+        camera_name = f"camera_{view}"
+        camera_cfg = getattr(env_cfg.scene, camera_name, None)
+        if camera_cfg is None:
+            continue
+        if view not in required_views:
+            setattr(env_cfg.scene, camera_name, None)
+            setattr(env_cfg.observations.policy, view, None)
+            continue
+        camera_cfg.data_types = ["rgb"]
+
+    for term_name in _EVAL_NON_RGB_TERMS:
+        setattr(env_cfg.observations.policy, term_name, None)
+
+    env_cfg.sim.render_interval = env_cfg.decimation
 
 
 def build_env(

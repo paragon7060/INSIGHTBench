@@ -462,7 +462,7 @@ class ManagerBasedContinuousEnv(ManagerBasedRLStepEnv):
             # set actions into simulator
             self.scene.write_data_to_sim()
             # simulate
-            self.sim.step(render=True)
+            self.sim.step(render=not getattr(self, "eval_single_render", False))
             self._check_collect_step_deadline("simulation")
             # render between steps only if the GUI or an RTX sensor needs it
             # note: we assume the render interval to be the shortest accepted rendering interval.

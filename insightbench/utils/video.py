@@ -16,10 +16,10 @@ class VideoRecorder:
     Usage::
 
         recorder = VideoRecorder("./outputs/videos", ["wrist", "right_shoulder"], num_envs=8, fps=10)
-        recorder.open(frame_shape=(224, 224, 3), asset_name="door_01", task_name="3a")
+        recorder.open(frame_shape=(224, 224, 3), asset_name="door_01", task_name="3a", task_idx=0)
         for step in range(eval_steps):
             recorder.write_frame(obs_batch)
-        recorder.close_and_rename(success_mask=[True, False, ...], asset_name="door_01", task_name="3a")
+        recorder.close_and_rename(success_mask=[True, False, ...], asset_name="door_01", task_name="3a", task_idx=0)
     """
 
     def __init__(
@@ -38,9 +38,14 @@ class VideoRecorder:
         self._writers: dict[str, list[cv2.VideoWriter]] = {}
         self._temp_paths: dict[str, list[str]] = {}
 
-    def open(self, frame_shape: tuple, asset_name: str, task_name: str) -> None:
+    def open(
+        self, frame_shape: tuple, asset_name: str, task_name: str, task_idx: int
+    ) -> None:
         """Create VideoWriter objects. Call once before the eval loop."""
-        os.makedirs(self.video_dir, exist_ok=True)
+        task_dir = os.path.join(
+            self.video_dir, asset_name, f"task{task_name}", f"task{task_idx}"
+        )
+        os.makedirs(task_dir, exist_ok=True)
         h, w = frame_shape[:2]
         fourcc = cv2.VideoWriter_fourcc(*self.codec)
 
@@ -48,7 +53,7 @@ class VideoRecorder:
             self._writers[view] = []
             self._temp_paths[view] = []
             for i in range(self.num_envs):
-                tmp = os.path.join(self.video_dir, f"{asset_name}_task{task_name}_{view}_env{i}_temp.mp4")
+                tmp = os.path.join(task_dir, f"{view}_env{i}_temp.mp4")
                 self._temp_paths[view].append(tmp)
                 writer = cv2.VideoWriter(tmp, fourcc, self.fps, (w, h))
                 if not writer.isOpened():
@@ -66,20 +71,27 @@ class VideoRecorder:
                 self._writers[view][i].write(frame_bgr)
 
     def close_and_rename(
-        self, success_mask: Sequence[bool], asset_name: str, task_name: str
+        self,
+        success_mask: Sequence[bool],
+        asset_name: str,
+        task_name: str,
+        task_idx: int,
     ) -> None:
         """Release writers and rename temp files with success/failure suffix."""
         for view in self.views:
             for w in self._writers[view]:
                 w.release()
 
+        task_dir = os.path.join(
+            self.video_dir, asset_name, f"task{task_name}", f"task{task_idx}"
+        )
         for view in self.views:
             for i, is_success in enumerate(success_mask):
                 temp = self._temp_paths[view][i]
                 status = "success" if is_success else "failure"
                 final = os.path.join(
-                    self.video_dir,
-                    f"{asset_name}_task{task_name}_{view}_env{i}_{status}.mp4",
+                    task_dir,
+                    f"{view}_env{i}_{status}.mp4",
                 )
                 if os.path.exists(temp):
                     os.rename(temp, final)

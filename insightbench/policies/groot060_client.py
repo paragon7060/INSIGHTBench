@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import json
 import sys
+import time
 from io import BytesIO
 from pathlib import Path
 from urllib.request import Request, urlopen
@@ -172,6 +173,12 @@ class Groot060ClientWrapper(PolicyBase):
         self.position_delta_limit = float(policy_cfg.get("position_delta_limit", 0.0))
         self.rotation_delta_limit = float(policy_cfg.get("rotation_delta_limit", 0.0))
         self.gripper_delta_limit = float(policy_cfg.get("gripper_delta_limit", 0.0))
+        self.target_smoothing_alpha = float(policy_cfg.get("target_smoothing_alpha", 1.0))
+        if not 0.0 < self.target_smoothing_alpha <= 1.0:
+            raise ValueError(
+                "target_smoothing_alpha must be in (0, 1], got "
+                f"{self.target_smoothing_alpha}"
+            )
         self.ee_to_joint_solver = str(policy_cfg.get("ee_to_joint_solver", "local_lula_dls"))
         self.lula_extension_path = str(
             policy_cfg.get(
@@ -195,6 +202,17 @@ class Groot060ClientWrapper(PolicyBase):
         self._kinematics_frame = None
         self._joint_limits = None
         self._ik_failure_count = 0
+        self._smoothed_target_position = None
+        self._smoothed_target_rotation = None
+        trace_path = policy_cfg.get("trace_path")
+        self._trace_path = Path(str(trace_path)).expanduser() if trace_path else None
+        self._trace_step = 0
+        self._trace_prev_position = None
+        self._trace_prev_rotation = None
+        self._trace_prev_joint_target = None
+        self._trace_prev_actual_joint = None
+        self._supports_cached_only = False
+        self._needs_full_query = True
 
     def load(self) -> None:
         health = _request_json("GET", self.health_endpoint)
@@ -226,10 +244,49 @@ class Groot060ClientWrapper(PolicyBase):
                 ],
                 dtype=np.float64,
             )
+        self._supports_cached_only = bool(health.get("supports_cached_only", False))
+        self._needs_full_query = True
         self.policy = True
 
     def reset(self) -> None:
-        _request_json("POST", self.reset_endpoint, {})
+        response = _request_json("POST", self.reset_endpoint, {})
+        if not response.get("ok"):
+            raise RuntimeError(f"GR00T 0.6 reset failed: {response}")
+        self._needs_full_query = True
+
+    def reset_episode(self) -> None:
+        self._smoothed_target_position = None
+        self._smoothed_target_rotation = None
+        self._trace_prev_position = None
+        self._trace_prev_rotation = None
+        self._trace_prev_joint_target = None
+        self._trace_prev_actual_joint = None
+        self.reset()
+
+    def _smooth_targets(
+        self,
+        target_position: np.ndarray,
+        target_rotation: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        alpha = self.target_smoothing_alpha
+        if alpha >= 1.0 or self._smoothed_target_position is None:
+            smoothed_position = target_position.copy()
+            smoothed_rotation = target_rotation.copy()
+        else:
+            smoothed_position = (
+                (1.0 - alpha) * self._smoothed_target_position
+                + alpha * target_position
+            )
+            relative_rotation = target_rotation @ np.swapaxes(
+                self._smoothed_target_rotation, -1, -2
+            )
+            rotation_step = alpha * _matrix_to_axis_angle(relative_rotation)
+            smoothed_rotation = (
+                _axis_angle_to_matrix(rotation_step) @ self._smoothed_target_rotation
+            )
+        self._smoothed_target_position = smoothed_position.copy()
+        self._smoothed_target_rotation = smoothed_rotation.copy()
+        return smoothed_position, smoothed_rotation
 
     def _solve_local_lula_ik(
         self,
@@ -303,26 +360,194 @@ class Groot060ClientWrapper(PolicyBase):
             solved[env_index] = joint
         return solved
 
+    def _trace_insight_action(
+        self,
+        response: dict,
+        state: np.ndarray,
+        current_position: np.ndarray,
+        current_rotation: np.ndarray,
+        target_position: np.ndarray,
+        target_rotation: np.ndarray,
+        joint_targets: np.ndarray,
+    ) -> None:
+        if self._trace_path is None:
+            return
+
+        from scipy.spatial.transform import Rotation
+
+        self._trace_path.parent.mkdir(parents=True, exist_ok=True)
+        actual_joints = state[:, 7:14]
+        records = []
+        for env_index in range(state.shape[0]):
+            target_gripper_rot = target_rotation[env_index] @ _LULA_GRIPPER_TO_TCP_ROT.T
+            target_gripper_pos = (
+                target_position[env_index]
+                - target_gripper_rot @ _LULA_GRIPPER_TO_TCP_POS
+            )
+            solved_pose = self._kinematics.pose(
+                joint_targets[env_index].astype(np.float64)[:, None], self._kinematics_frame
+            )
+            solved_position = np.asarray(solved_pose.translation, dtype=np.float64)
+            solved_rotation = np.asarray(solved_pose.rotation.matrix(), dtype=np.float64)
+            ik_position_error = float(np.linalg.norm(target_gripper_pos - solved_position))
+            ik_rotation_error = float(
+                np.linalg.norm(
+                    Rotation.from_matrix(target_gripper_rot @ solved_rotation.T).as_rotvec()
+                )
+            )
+
+            position_step = None
+            rotation_step = None
+            joint_target_step = None
+            actual_joint_step = None
+            previous_target_tracking_error = None
+            if self._trace_prev_position is not None:
+                position_step = float(
+                    np.linalg.norm(
+                        target_position[env_index] - self._trace_prev_position[env_index]
+                    )
+                )
+                rotation_step = float(
+                    np.linalg.norm(
+                        Rotation.from_matrix(
+                            target_rotation[env_index]
+                            @ self._trace_prev_rotation[env_index].T
+                        ).as_rotvec()
+                    )
+                )
+                joint_target_step = float(
+                    np.max(
+                        np.abs(
+                            joint_targets[env_index]
+                            - self._trace_prev_joint_target[env_index]
+                        )
+                    )
+                )
+                actual_joint_step = float(
+                    np.max(
+                        np.abs(
+                            actual_joints[env_index]
+                            - self._trace_prev_actual_joint[env_index]
+                        )
+                    )
+                )
+                previous_target_tracking_error = float(
+                    np.max(
+                        np.abs(
+                            self._trace_prev_joint_target[env_index]
+                            - actual_joints[env_index]
+                        )
+                    )
+                )
+
+            records.append(
+                {
+                    "step": self._trace_step,
+                    "env": env_index,
+                    "chunk_index": int(response.get("chunk_index", -1)),
+                    "chunk_actions": int(response.get("chunk_actions", -1)),
+                    "chunk_shape": response.get("chunk_shape"),
+                    "inference_ran": bool(response.get("inference_ran", False)),
+                    "request_kind": response.get("_client_request_kind"),
+                    "server_elapsed_ms": response.get("elapsed_ms"),
+                    "client_payload_ms": response.get("_client_payload_ms"),
+                    "client_http_ms": response.get("_client_http_ms"),
+                    "client_cache_probe_ms": response.get("_client_cache_probe_ms"),
+                    "client_ik_ms": response.get("_client_ik_ms"),
+                    "target_smoothing_alpha": self.target_smoothing_alpha,
+                    "ik_converged": bool(
+                        ik_position_error <= self.ik_position_tolerance_m
+                        and ik_rotation_error <= self.ik_rotation_tolerance_rad
+                    ),
+                    "ik_position_error_m": ik_position_error,
+                    "ik_rotation_error_rad": ik_rotation_error,
+                    "ee_command_distance_m": float(
+                        np.linalg.norm(target_position[env_index] - current_position[env_index])
+                    ),
+                    "ee_command_rotation_rad": float(
+                        np.linalg.norm(
+                            Rotation.from_matrix(
+                                target_rotation[env_index] @ current_rotation[env_index].T
+                            ).as_rotvec()
+                        )
+                    ),
+                    "ee_target_step_m": position_step,
+                    "ee_target_step_rotation_rad": rotation_step,
+                    "joint_target_step_max_rad": joint_target_step,
+                    "actual_joint_step_max_rad": actual_joint_step,
+                    "previous_target_tracking_error_max_rad": previous_target_tracking_error,
+                    "command_joint_error_max_rad": float(
+                        np.max(np.abs(joint_targets[env_index] - actual_joints[env_index]))
+                    ),
+                    "ee_target_position": target_position[env_index].tolist(),
+                    "joint_target": joint_targets[env_index].tolist(),
+                    "actual_joint": actual_joints[env_index].tolist(),
+                    "observation_state": state[env_index].tolist(),
+                }
+            )
+
+        with self._trace_path.open("a", encoding="utf-8") as trace_file:
+            for record in records:
+                trace_file.write(json.dumps(record, separators=(",", ":")) + "\n")
+
+        self._trace_step += 1
+        self._trace_prev_position = target_position.copy()
+        self._trace_prev_rotation = target_rotation.copy()
+        self._trace_prev_joint_target = joint_targets.copy()
+        self._trace_prev_actual_joint = actual_joints.copy()
+
+    def _request_action_response(self, obs_state, obs_imgs, task_prompts) -> dict:
+        def full_query(cache_probe_ms: float = 0.0) -> dict:
+            payload_started = time.perf_counter()
+            missing_images = [
+                source for source in self.image_mapping.values() if source not in obs_imgs
+            ]
+            if missing_images:
+                raise KeyError(f"Need images {missing_images}; got {list(obs_imgs)}")
+
+            def to_uint8(tensor: torch.Tensor) -> np.ndarray:
+                image = tensor.detach().clamp(0, 1).mul(255).to(torch.uint8).cpu().numpy()
+                return np.ascontiguousarray(image)
+
+            payload = {
+                "state": _encode_array(obs_state.detach().to(torch.float32).cpu().numpy()),
+                "images": {
+                    target: _encode_array(to_uint8(obs_imgs[source]))
+                    for target, source in self.image_mapping.items()
+                },
+                "task": list(task_prompts),
+            }
+            payload_ms = (time.perf_counter() - payload_started) * 1000.0
+            request_started = time.perf_counter()
+            response = _request_json("POST", self.endpoint, payload)
+            response["_client_request_kind"] = "full"
+            response["_client_payload_ms"] = payload_ms
+            response["_client_http_ms"] = (
+                time.perf_counter() - request_started
+            ) * 1000.0
+            response["_client_cache_probe_ms"] = cache_probe_ms
+            if response.get("ok"):
+                self._needs_full_query = False
+            return response
+
+        if not self._supports_cached_only or self._needs_full_query:
+            return full_query()
+
+        request_started = time.perf_counter()
+        response = _request_json("POST", self.endpoint, {"cached_only": True})
+        cache_probe_ms = (time.perf_counter() - request_started) * 1000.0
+        if response.get("needs_query"):
+            return full_query(cache_probe_ms=cache_probe_ms)
+        response["_client_request_kind"] = "cached"
+        response["_client_payload_ms"] = 0.0
+        response["_client_http_ms"] = cache_probe_ms
+        response["_client_cache_probe_ms"] = 0.0
+        return response
+
     def select_action(self, obs_state, obs_imgs, task_prompts):
         if obs_state.ndim != 2 or obs_state.shape[1] != int(self.cfg.state_dim):
             raise ValueError(f"Expected state [B, {self.cfg.state_dim}], got {tuple(obs_state.shape)}")
-        missing_images = [source for source in self.image_mapping.values() if source not in obs_imgs]
-        if missing_images:
-            raise KeyError(f"Need images {missing_images}; got {list(obs_imgs)}")
-
-        def to_uint8(tensor: torch.Tensor) -> np.ndarray:
-            image = tensor.detach().clamp(0, 1).mul(255).to(torch.uint8).cpu().numpy()
-            return np.ascontiguousarray(image)
-
-        payload = {
-            "state": _encode_array(obs_state.detach().to(torch.float32).cpu().numpy()),
-            "images": {
-                target: _encode_array(to_uint8(obs_imgs[source]))
-                for target, source in self.image_mapping.items()
-            },
-            "task": list(task_prompts),
-        }
-        response = _request_json("POST", self.endpoint, payload)
+        response = self._request_action_response(obs_state, obs_imgs, task_prompts)
         if not response.get("ok"):
             raise RuntimeError(f"GR00T 0.6 inference failed: {response}")
         action = _decode_array(response["action"]).astype(np.float32, copy=False)
@@ -337,6 +562,9 @@ class Groot060ClientWrapper(PolicyBase):
             current_rotation = _quat_wxyz_to_matrix(state[:, 3:7])
             target_position = action[:, 0:3]
             target_rotation = _rotation_6d_to_matrix(action[:, 3:9])
+            target_position, target_rotation = self._smooth_targets(
+                target_position, target_rotation
+            )
             delta_position = _clip_vector_norm(target_position - current_position, self.position_delta_limit)
             delta_rotation_matrix = target_rotation @ np.swapaxes(current_rotation, -1, -2)
             delta_rotation = _clip_vector_norm(
@@ -352,10 +580,23 @@ class Groot060ClientWrapper(PolicyBase):
 
             limited_position = current_position + delta_position
             limited_rotation = _axis_angle_to_matrix(delta_rotation) @ current_rotation
+            ik_started = time.perf_counter()
             joint_targets = self._solve_local_lula_ik(
                 limited_position,
                 limited_rotation,
                 state[:, 7:14],
+            )
+            response["_client_ik_ms"] = (
+                time.perf_counter() - ik_started
+            ) * 1000.0
+            self._trace_insight_action(
+                response,
+                state,
+                current_position,
+                current_rotation,
+                limited_position,
+                limited_rotation,
+                joint_targets,
             )
             env_action = np.concatenate(
                 [joint_targets, target_gripper], axis=1

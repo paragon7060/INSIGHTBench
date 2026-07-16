@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import time
 
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO_ROOT in sys.path:
@@ -56,7 +57,7 @@ import torch
 from cfg.BaseTaskCfg import REWARD_FOR_SCENE_KEY, SCENE_TASK_PROMPT_GUIDE, SCENE_TASK_PROMPT_INSTRUCTION, SCENE_TASK_PROMPT_SEM, SCENE_TASK_PROMPT_INSTRUCTION_REVERSE, SCENE_TASK_PROMPT
 from custom_lab.envs.manager_based_rl_step_env import ManagerBasedContinuousEnv
 
-from insightbench.envs.builder import build_env
+from insightbench.envs.builder import build_env, configure_eval_camera_pipeline
 from insightbench.policies import load_policy
 from insightbench.utils.obs import build_obs_state, build_obs_images
 from insightbench.utils.video import VideoRecorder
@@ -108,11 +109,15 @@ def run_episode(
     recorder: VideoRecorder | None,
     asset_name: str,
     task_name: str,
+    task_idx: int,
     obj_name: str = "",
 ) -> torch.Tensor:
     """Run one evaluation episode. Returns bool tensor (num_envs,) — True = success."""
     obs_batch, _ = env.reset()
-    policy.reset()
+    if hasattr(policy, "reset_episode"):
+        policy.reset_episode()
+    else:
+        policy.reset()
 
     obs_batch = _noop_warmup(env, obs_batch, warmup_steps)
 
@@ -124,21 +129,36 @@ def run_episode(
 
     if recorder is not None:
         first_frame = obs_batch["policy"]["wrist"][0]
-        recorder.open(first_frame.shape, asset_name, task_name)
+        recorder.open(first_frame.shape, asset_name, task_name, task_idx)
 
+    perf_totals = {
+        "obs": 0.0,
+        "reset": 0.0,
+        "policy": 0.0,
+        "env": 0.0,
+        "video": 0.0,
+        "total": 0.0,
+    }
     for step in range(eval_steps):
+        step_started = time.perf_counter()
         # Success check from reward manager
         step_rew = env.reward_manager._step_reward.squeeze(-1)
         reward_threshold = REWARD_FOR_SCENE_KEY[scene_key[0]]
         success_tracker |= step_rew > reward_threshold
 
+        phase_started = time.perf_counter()
         obs_state = build_obs_state(obs_batch, policy_type)
         obs_imgs  = build_obs_images(obs_batch, infer_type, guide_cam=guide_cam)
+        perf_totals["obs"] += time.perf_counter() - phase_started
 
+        phase_started = time.perf_counter()
         if step % query_freq == 0:
             policy.reset()
+        perf_totals["reset"] += time.perf_counter() - phase_started
 
+        phase_started = time.perf_counter()
         action = policy.select_action(obs_state, obs_imgs, task_prompts)
+        perf_totals["policy"] += time.perf_counter() - phase_started
         expected_action_dim = env.action_manager.total_action_dim - 1
         if action.ndim != 2 or action.shape[1] != expected_action_dim:
             raise ValueError(
@@ -148,13 +168,35 @@ def run_episode(
         # The policy exposes one logical gripper command; replicate it for the two fingers.
         action = torch.cat([action, action[:, -1].unsqueeze(1)], dim=1)
 
+        phase_started = time.perf_counter()
         obs_batch, _, _, _, _ = env.step(action)
+        perf_totals["env"] += time.perf_counter() - phase_started
 
+        phase_started = time.perf_counter()
         if recorder is not None:
             recorder.write_frame(obs_batch)
+        perf_totals["video"] += time.perf_counter() - phase_started
+        perf_totals["total"] += time.perf_counter() - step_started
+
+        completed_steps = step + 1
+        if completed_steps % 10 == 0 or completed_steps == eval_steps:
+            averages = {
+                name: total * 1000.0 / completed_steps
+                for name, total in perf_totals.items()
+            }
+            _log(
+                "[PERF] "
+                f"step={completed_steps}/{eval_steps} "
+                f"total_ms={averages['total']:.1f} "
+                f"obs_ms={averages['obs']:.1f} "
+                f"reset_ms={averages['reset']:.1f} "
+                f"policy_ms={averages['policy']:.1f} "
+                f"env_ms={averages['env']:.1f} "
+                f"video_ms={averages['video']:.1f}"
+            )
 
     if recorder is not None:
-        recorder.close_and_rename(success_tracker.tolist(), asset_name, task_name)
+        recorder.close_and_rename(success_tracker.tolist(), asset_name, task_name, task_idx)
 
     return success_tracker
 
@@ -175,6 +217,7 @@ def main() -> None:
     num_envs   = args.num_envs if args.num_envs is not None else eval_cfg.get("num_envs", 8)
     seed       = args.seed if args.seed is not None else 42
     num_episodes = eval_cfg.get("num_episodes", 1)
+    infer_type, guide_cam = _resolve_policy_inference_options(policy_cfg)
 
     _log(f"")
     _log(f"{'='*60}")
@@ -194,8 +237,18 @@ def main() -> None:
         seed=seed,
         pos_rand=args.pos_rand,
     )
+    if eval_cfg.get("optimize_camera_pipeline", False):
+        required_views = {"wrist", "right_shoulder"}
+        if infer_type == "sem" or not guide_cam:
+            required_views.add("left_shoulder")
+        else:
+            required_views.add("guide")
+        if eval_cfg.get("save_video", False):
+            required_views.update(eval_cfg.get("video_views", []))
+        configure_eval_camera_pipeline(env_cfg, required_views)
 
     env: ManagerBasedContinuousEnv = ManagerBasedContinuousEnv(cfg=env_cfg, scene_key=scene_key)
+    env.eval_single_render = bool(eval_cfg.get("optimize_camera_pipeline", False))
 
     # Set gripper defaults
     env.scene["robot"].data.default_joint_pos[:, 7] = 0.04
@@ -216,7 +269,6 @@ def main() -> None:
     _log(f"[2/3] Policy loaded  ({policy_cfg.type})")
 
     # ── Task prompts ───────────────────────────────────────────────────────────
-    infer_type, guide_cam = _resolve_policy_inference_options(policy_cfg)
     task_prompt = _get_task_prompt(infer_type, scene_key)
     task_prompts = [task_prompt] * num_envs
 
@@ -225,7 +277,7 @@ def main() -> None:
     if eval_cfg.get("save_video", False):
         recorder = VideoRecorder(
             video_dir=eval_cfg.video_dir,
-            views=["wrist", "right_shoulder"],
+            views=list(eval_cfg.get("video_views", ["wrist", "right_shoulder"])),
             num_envs=num_envs,
             fps=eval_cfg.get("fps", 10),
         )
@@ -250,6 +302,7 @@ def main() -> None:
             recorder=recorder,
             asset_name=args.asset_path,
             task_name=scene_key,
+            task_idx=args.task_idx,
             obj_name=args.object,
         )
         ep_successes = int(success_mask.sum().item())
