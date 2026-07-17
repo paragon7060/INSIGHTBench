@@ -7,7 +7,7 @@ policy:
   type: groot
   checkpoint: ""  # Required: override with a verified Hub repo ID or local checkpoint path.
   action_dim: 8
-  infer_type: "guide"
+  infer_type: "instruction"
   guide_cam: true
 
 eval:

@@ -15,6 +15,7 @@ def save_result(
     scene_key: str,
     successes: int,
     attempts: int,
+    split: str | None = None,
 ) -> str:
     """Write a single JSON result file and return its path."""
     os.makedirs(results_dir, exist_ok=True)
@@ -28,6 +29,10 @@ def save_result(
         "successes": successes,
         "rate":      round(successes / attempts, 4) if attempts > 0 else 0.0,
     }
+    if split is not None:
+        if split not in {"seen", "unseen"}:
+            raise ValueError(f"Unknown eval split: {split!r}")
+        result["split"] = split
 
     filename = f"{obj_name}_{asset_path}_task{task_idx}.json"
     filepath = os.path.join(results_dir, filename)

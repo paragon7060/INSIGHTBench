@@ -42,3 +42,21 @@ def test_aggregate_results_returns_total_and_per_object_stats(tmp_path) -> None:
         "cabinet": {"successes": 4, "attempts": 6, "rate": 0.6667},
         "door": {"successes": 0, "attempts": 1, "rate": 0.0},
     }
+
+
+def test_save_result_includes_validated_split_when_provided(tmp_path) -> None:
+    path = save_result(
+        str(tmp_path),
+        obj_name="cabinet",
+        asset_path="asset_a",
+        task_idx=0,
+        scene_key="1ext",
+        successes=1,
+        attempts=8,
+        split="seen",
+    )
+
+    with open(path) as f:
+        result = json.load(f)
+
+    assert result["split"] == "seen"

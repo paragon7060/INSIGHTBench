@@ -28,6 +28,7 @@ sys.path.insert(0, _REPO_ROOT)
 from isaaclab.app import AppLauncher
 from omegaconf import OmegaConf
 
+from insightbench.utils.eval_artifacts import resolve_asset_split
 from insightbench.utils.eval_config import load_eval_config, validate_required_eval_inputs
 
 
@@ -110,6 +111,7 @@ def run_episode(
     asset_name: str,
     task_name: str,
     task_idx: int,
+    split: str,
     obj_name: str = "",
 ) -> torch.Tensor:
     """Run one evaluation episode. Returns bool tensor (num_envs,) — True = success."""
@@ -129,7 +131,14 @@ def run_episode(
 
     if recorder is not None:
         first_frame = obs_batch["policy"]["wrist"][0]
-        recorder.open(first_frame.shape, asset_name, task_name, task_idx)
+        recorder.open(
+            first_frame.shape,
+            object_name=obj_name,
+            asset_name=asset_name,
+            scene_key=task_name,
+            split=split,
+            task_idx=task_idx,
+        )
 
     perf_totals = {
         "obs": 0.0,
@@ -196,7 +205,7 @@ def run_episode(
             )
 
     if recorder is not None:
-        recorder.close_and_rename(success_tracker.tolist(), asset_name, task_name, task_idx)
+        recorder.close_and_rename(success_tracker.tolist())
 
     return success_tracker
 
@@ -214,6 +223,7 @@ def main() -> None:
 
     policy_cfg = cfg.policy
     eval_cfg   = cfg.eval
+    policy_device = torch.device(OmegaConf.select(policy_cfg, "device", default=str(device)))
     num_envs   = args.num_envs if args.num_envs is not None else eval_cfg.get("num_envs", 8)
     seed       = args.seed if args.seed is not None else 42
     num_episodes = eval_cfg.get("num_episodes", 1)
@@ -247,6 +257,9 @@ def main() -> None:
             required_views.update(eval_cfg.get("video_views", []))
         configure_eval_camera_pipeline(env_cfg, required_views)
 
+    split = resolve_asset_split(args.object, args.asset_path)
+    _log(f"[1/3] Artifact routing: scene={scene_key} split={split}")
+
     env: ManagerBasedContinuousEnv = ManagerBasedContinuousEnv(cfg=env_cfg, scene_key=scene_key)
     env.eval_single_render = bool(eval_cfg.get("optimize_camera_pipeline", False))
 
@@ -265,7 +278,7 @@ def main() -> None:
 
     # ── Load policy ────────────────────────────────────────────────────────────
     _log(f"[2/3] Loading policy...")
-    policy = load_policy(policy_cfg, device)
+    policy = load_policy(policy_cfg, policy_device)
     _log(f"[2/3] Policy loaded  ({policy_cfg.type})")
 
     # ── Task prompts ───────────────────────────────────────────────────────────
@@ -303,6 +316,7 @@ def main() -> None:
             asset_name=args.asset_path,
             task_name=scene_key,
             task_idx=args.task_idx,
+            split=split,
             obj_name=args.object,
         )
         ep_successes = int(success_mask.sum().item())
@@ -325,6 +339,7 @@ def main() -> None:
         scene_key=scene_key,
         successes=total_success,
         attempts=total_attempts,
+        split=split,
     )
 
     env.close()
