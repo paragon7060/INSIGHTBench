@@ -58,7 +58,11 @@ import torch
 from cfg.BaseTaskCfg import REWARD_FOR_SCENE_KEY, SCENE_TASK_PROMPT_GUIDE, SCENE_TASK_PROMPT_INSTRUCTION, SCENE_TASK_PROMPT_SEM, SCENE_TASK_PROMPT_INSTRUCTION_REVERSE, SCENE_TASK_PROMPT
 from custom_lab.envs.manager_based_rl_step_env import ManagerBasedContinuousEnv
 
-from insightbench.envs.builder import build_env, configure_eval_camera_pipeline
+from insightbench.envs.builder import (
+    build_env,
+    configure_eval_camera_pipeline,
+    configure_eval_default_joint_state,
+)
 from insightbench.policies import load_policy
 from insightbench.utils.obs import build_obs_state, build_obs_images
 from insightbench.utils.video import VideoRecorder
@@ -148,12 +152,9 @@ def run_episode(
         "video": 0.0,
         "total": 0.0,
     }
+    reward_threshold = REWARD_FOR_SCENE_KEY[scene_key[0]]
     for step in range(eval_steps):
         step_started = time.perf_counter()
-        # Success check from reward manager
-        step_rew = env.reward_manager._step_reward.squeeze(-1)
-        reward_threshold = REWARD_FOR_SCENE_KEY[scene_key[0]]
-        success_tracker |= step_rew > reward_threshold
 
         phase_started = time.perf_counter()
         obs_state = build_obs_state(obs_batch, policy_type)
@@ -180,6 +181,9 @@ def run_episode(
         phase_started = time.perf_counter()
         obs_batch, _, _, _, _ = env.step(action)
         perf_totals["env"] += time.perf_counter() - phase_started
+
+        step_rew = env.reward_manager._step_reward.squeeze(-1)
+        success_tracker |= step_rew > reward_threshold
 
         phase_started = time.perf_counter()
         if recorder is not None:
@@ -263,16 +267,7 @@ def main() -> None:
     env: ManagerBasedContinuousEnv = ManagerBasedContinuousEnv(cfg=env_cfg, scene_key=scene_key)
     env.eval_single_render = bool(eval_cfg.get("optimize_camera_pipeline", False))
 
-    # Set gripper defaults
-    env.scene["robot"].data.default_joint_pos[:, 7] = 0.04
-    env.scene["robot"].data.default_joint_vel[:, 8] = 0.04
-    if args.object == "bottle":
-        if info.get("close_mode"):
-            env.scene["bottle"].data.default_joint_pos[:, 0] = 0.005
-            env.scene["bottle"].data.default_joint_pos[:, 1] = env.scene["bottle"].data.joint_pos_limits[:, 1, 1]
-        else:
-            env.scene["bottle"].data.default_joint_pos[:, 0] = 0.0
-            env.scene["bottle"].data.default_joint_pos[:, 1] = 0.0
+    configure_eval_default_joint_state(env, args.object, info)
 
     _log(f"[1/3] Env ready  (scene_key={scene_key})")
 

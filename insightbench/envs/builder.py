@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 from copy import deepcopy
+import random
 from typing import Tuple
+
+import numpy as np
 
 
 EVAL_GUIDE_CAMERA_HEIGHT = 224
@@ -64,6 +67,23 @@ def configure_eval_camera_pipeline(env_cfg, required_views: set[str]) -> None:
     env_cfg.sim.render_interval = env_cfg.decimation
 
 
+def configure_eval_default_joint_state(env, obj_name: str, info: dict) -> None:
+    """Set deterministic joint defaults used by the episode reset."""
+    robot_data = env.scene["robot"].data
+    robot_data.default_joint_pos[:, 7:9] = 0.04
+    robot_data.default_joint_vel[:, 7:9] = 0.0
+
+    if obj_name == "bottle":
+        bottle_data = env.scene["bottle"].data
+        if info.get("close_mode"):
+            bottle_data.default_joint_pos[:, 0] = 0.005
+            bottle_data.default_joint_pos[:, 1] = bottle_data.joint_pos_limits[:, 1, 1]
+        else:
+            bottle_data.default_joint_pos[:, 0] = 0.0
+            bottle_data.default_joint_pos[:, 1] = 0.0
+        bottle_data.default_joint_vel.zero_()
+
+
 def build_env(
     obj_name: str,
     task_idx: int,
@@ -98,6 +118,11 @@ def build_env(
 
     if obj_name not in ASSET_DIRS:
         raise ValueError(f"Unknown object '{obj_name}'. Choose from: {list(ASSET_DIRS)}")
+
+    # Asset/guide sampling happens before Isaac Lab constructs and seeds the env.
+    # Seed both Python and NumPy here so repeated checkpoint runs are paired.
+    random.seed(seed)
+    np.random.seed(seed)
 
     dir_path = ASSET_DIRS[obj_name]
 

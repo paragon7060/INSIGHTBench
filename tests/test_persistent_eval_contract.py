@@ -9,6 +9,7 @@ ORIGINAL = REPO_ROOT / "scripts" / "evaluate.py"
 PERSISTENT = REPO_ROOT / "scripts" / "evaluate_persistent.py"
 PERSISTENT_BATCH = REPO_ROOT / "scripts" / "eval_batch_persistent.sh"
 PERSISTENT_BATCH_PY = REPO_ROOT / "scripts" / "eval_batch_persistent.py"
+BUILDER = REPO_ROOT / "insightbench" / "envs" / "builder.py"
 
 
 def _function_dump(path: Path, function_name: str) -> str:
@@ -52,3 +53,36 @@ def test_persistent_batch_supports_deployment_controls() -> None:
         assert option in source
     for artifact in ("run_manifest.json", "jobs.tsv", "retry_failed.sh"):
         assert artifact in source
+
+
+def _function_source(path: Path, function_name: str) -> str:
+    source = path.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == function_name:
+            return ast.get_source_segment(source, node) or ""
+    raise AssertionError(f"{function_name} not found in {path}")
+
+
+def test_reward_is_checked_after_every_policy_action() -> None:
+    for path in (ORIGINAL, PERSISTENT):
+        source = _function_source(path, "run_episode")
+        assert source.count("step_rew =") == 1
+        assert source.index("env.step(action)") < source.index("step_rew =")
+
+
+def test_eval_reset_defaults_are_deterministic_and_symmetric() -> None:
+    source = _function_source(BUILDER, "configure_eval_default_joint_state")
+    assert "default_joint_pos[:, 7:9] = 0.04" in source
+    assert "default_joint_vel[:, 7:9] = 0.0" in source
+    for path in (ORIGINAL, PERSISTENT):
+        script_source = path.read_text(encoding="utf-8")
+        assert "configure_eval_default_joint_state(" in script_source
+        assert "default_joint_vel[:, 8] = 0.04" not in script_source
+
+
+def test_asset_sampling_is_seeded_before_asset_info_is_built() -> None:
+    source = _function_source(BUILDER, "build_env")
+    info_call = source.index("info = get_info_test")
+    assert source.index("random.seed(seed)") < info_call
+    assert source.index("np.random.seed(seed)") < info_call
