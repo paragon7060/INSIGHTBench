@@ -310,6 +310,51 @@ python scripts/aggregate_results.py --results_dir outputs/results/pi0 --save_csv
 
 Failed runs are automatically collected in `outputs/retry_failed.sh`.
 
+### Persistent Category Evaluation
+
+For repeated evaluation, the persistent launcher starts one worker per GPU and loads the
+policy once per worker. Categories can be selected independently from the seen/unseen split.
+
+```bash
+# Preview the exact job plan without starting Isaac Sim.
+./scripts/eval_batch_persistent.sh \
+    --config configs/eval/groot.yaml \
+    --checkpoint /path/to/checkpoint \
+    --categories door,bottle \
+    --splits seen,unseen \
+    --gpus 0,1 \
+    --num-envs 2 \
+    --run-dir outputs/eval_runs/groot_door_bottle \
+    --dry-run
+
+# Run the previewed plan: remove --dry-run and add --resume.
+# After interruption, repeat that run command with --resume again.
+```
+
+Valid categories are `cabinet`, `door`, and `bottle`. Use `--splits seen` or
+`--splits unseen` to evaluate one benchmark split, and `--assets id1,id2` for an
+optional asset-level subset. Repeat `--override key=value` for additional config values.
+
+Match the evaluation contract to the checkpoint before launching a full run. In particular,
+the visual keys in the checkpoint's `config.json`, its training prompt set, and the evaluation
+horizon must agree with the runtime settings. For an instruction-trained GR00T checkpoint that
+was evaluated with a 300-step horizon, add:
+
+```bash
+--override policy.infer_type=instruction \
+--override eval.eval_steps=300
+```
+
+A checkpoint whose `input_features` contains only `wrist` and `right_shoulder` was not trained
+with the `guide` camera. Do not treat it as a three-camera guide checkpoint merely because the
+dataset still contains a guide video. Check a small asset subset first with `--assets` before
+starting the complete benchmark.
+
+The launcher writes `run_manifest.json`, the complete `jobs.tsv`, and per-GPU assignments
+before starting Isaac Sim. Workers add status files, per-job logs, results, and videos;
+completed runs also receive `retry_failed.sh` for any unfinished jobs.
+The original `scripts/evaluate.py` and `scripts/eval_batch.sh` entry points remain available.
+
 ---
 
 ## Supported Policies
@@ -537,8 +582,10 @@ InsightBench/
 │   └── utils/                  # obs, video, results utilities
 ├── scripts/
 │   ├── evaluate.py             # Single evaluation entry point
+│   ├── evaluate_persistent.py  # Persistent policy worker
 │   ├── collect_demo.py         # Demonstration data collection
 │   ├── eval_batch.sh           # Batch evaluation over all assets/tasks
+│   ├── eval_batch_persistent.sh # Category-aware deployment launcher
 │   └── aggregate_results.py    # Result aggregation + CSV export
 ├── configs/
 │   ├── eval/                   # Per-policy YAML configs
