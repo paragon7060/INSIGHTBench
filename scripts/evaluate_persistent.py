@@ -33,6 +33,7 @@ sys.path.insert(0, str(_REPO_ROOT))
 from isaaclab.app import AppLauncher
 from omegaconf import OmegaConf
 
+from insightbench.utils.eval_artifacts import resolve_asset_split
 from insightbench.utils.eval_config import load_eval_config, validate_required_eval_inputs
 
 
@@ -181,6 +182,7 @@ def run_episode(
     asset_name: str,
     task_name: str,
     task_idx: int,
+    split: str,
     obj_name: str = "",
 ) -> torch.Tensor:
     """Run one evaluation episode. Returns bool tensor (num_envs,) — True = success."""
@@ -199,7 +201,14 @@ def run_episode(
 
     if recorder is not None:
         first_frame = obs_batch["policy"]["wrist"][0]
-        recorder.open(first_frame.shape, asset_name, task_name, task_idx)
+        recorder.open(
+            first_frame.shape,
+            object_name=obj_name,
+            asset_name=asset_name,
+            scene_key=task_name,
+            split=split,
+            task_idx=task_idx,
+        )
 
     perf_totals = {
         "obs": 0.0,
@@ -263,7 +272,7 @@ def run_episode(
             )
 
     if recorder is not None:
-        recorder.close_and_rename(success_tracker.tolist(), asset_name, task_name, task_idx)
+        recorder.close_and_rename(success_tracker.tolist())
 
     return success_tracker
 
@@ -281,6 +290,7 @@ def _release_open_video_writers(recorder: VideoRecorder | None) -> None:
             writer.release()
     recorder._writers.clear()
     recorder._temp_paths.clear()
+    recorder._job_dir = None
 
 
 def _close_environment(env: ManagerBasedContinuousEnv | None) -> None:
@@ -341,6 +351,7 @@ def _run_job(
     cfg = cfg_cli
     policy_cfg = cfg.policy
     eval_cfg = cfg.eval
+    policy_device = torch.device(OmegaConf.select(policy_cfg, "device", default=str(device)))
     num_envs = args_cli.num_envs if args_cli.num_envs is not None else eval_cfg.get("num_envs", 8)
     seed = args_cli.seed if args_cli.seed is not None else 42
     num_episodes = eval_cfg.get("num_episodes", 1)
@@ -383,6 +394,9 @@ def _run_job(
                 required_views.update(eval_cfg.get("video_views", []))
             configure_eval_camera_pipeline(env_cfg, required_views)
 
+        split = resolve_asset_split(object_name, asset_name)
+        _log(f"[1/3] Artifact routing: scene={scene_key} split={split}")
+
         env = ManagerBasedContinuousEnv(cfg=env_cfg, scene_key=scene_key)
         env.eval_single_render = bool(eval_cfg.get("optimize_camera_pipeline", False))
         env.scene["robot"].data.default_joint_pos[:, 7] = 0.04
@@ -401,7 +415,7 @@ def _run_job(
         if policy is None:
             _log("[2/3] Loading policy once for this persistent worker...")
             try:
-                policy = load_policy(policy_cfg, device)
+                policy = load_policy(policy_cfg, policy_device)
             except Exception as exc:
                 raise PolicyLoadError("Persistent worker policy initialization failed") from exc
             policy_ref[0] = policy
@@ -439,6 +453,7 @@ def _run_job(
                 asset_name=asset_name,
                 task_name=scene_key,
                 task_idx=task_idx,
+                split=split,
                 obj_name=object_name,
             )
             episode_successes = int(success_mask.sum().item())
@@ -461,6 +476,7 @@ def _run_job(
             scene_key=scene_key,
             successes=total_success,
             attempts=total_attempts,
+            split=split,
         )
     finally:
         _release_open_video_writers(recorder)

@@ -38,7 +38,7 @@ def test_persistent_path_is_additive_and_retries_with_original_evaluator() -> No
     assert "scripts/evaluate.py" in batch_source
     assert "evaluate_persistent.py" in batch_source
     assert "--objects" in batch_source
-    assert persistent_source.count("load_policy(policy_cfg, device)") == 1
+    assert persistent_source.count("load_policy(policy_cfg, policy_device)") == 1
     assert "Reusing loaded policy" in persistent_source
     assert "stage_utils.create_new_stage()" in persistent_source
     assert "simulation_context.stop" in persistent_source
