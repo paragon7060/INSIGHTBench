@@ -120,7 +120,7 @@ def make_cabinet_scene_and_reward_cfg(
                 prim_path="{ENV_REGEX_NS}/Cabinet/"+f"{link_id}/guide_arrow",
                 init_state= AssetBaseCfg.InitialStateCfg(pos=guide_init_pos, rot=guide_init_quat),
                 spawn=sim_utils.UsdFileCfg(
-                    usd_path="Assets/guides/arrows/guide_arrow_physics.usd",
+                    usd_path="Assets/guides/arrows/guide_arrow_visual.usd",
                     scale=(0.02, 0.02, 0.02),
                     )
                 )

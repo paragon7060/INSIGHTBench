@@ -160,6 +160,7 @@ class Groot060ClientWrapper(PolicyBase):
         self.reset_endpoint = str(policy_cfg.reset_endpoint)
         self.health_endpoint = str(policy_cfg.health_endpoint)
         self.checkpoint_kind = str(policy_cfg.get("checkpoint_kind", "base_n1_7"))
+        self.action_space = str(policy_cfg.get("action_space", "ee_abs_rot6d"))
         image_mapping = policy_cfg.get("image_mapping")
         if image_mapping:
             self.image_mapping = {str(key): str(value) for key, value in image_mapping.items()}
@@ -226,24 +227,38 @@ class Groot060ClientWrapper(PolicyBase):
         if server_kind != self.checkpoint_kind:
             raise ValueError(f"Server checkpoint_kind={server_kind} but config has {self.checkpoint_kind}")
         if self.checkpoint_kind == "insight_finetuned":
-            if self.ee_to_joint_solver != "local_lula_dls":
-                raise ValueError(
-                    f"Unsupported ee_to_joint_solver={self.ee_to_joint_solver!r}; "
-                    "INSIGHT finetuned checkpoints currently use local_lula_dls"
-                )
-            self._kinematics, self._kinematics_frame = _load_lula_kinematics(
-                self.lula_extension_path
-            )
-            self._joint_limits = np.asarray(
-                [
-                    (
-                        self._kinematics.c_space_coord_limits(index).lower,
-                        self._kinematics.c_space_coord_limits(index).upper,
+            if self.action_space == "joint_abs":
+                if int(self.cfg.action_dim) != 8:
+                    raise ValueError(
+                        f"joint_abs requires action_dim=8, got {self.cfg.action_dim}"
                     )
-                    for index in range(7)
-                ],
-                dtype=np.float64,
-            )
+            elif self.action_space == "ee_abs_rot6d":
+                if int(self.cfg.action_dim) != 10:
+                    raise ValueError(
+                        f"ee_abs_rot6d requires action_dim=10, got {self.cfg.action_dim}"
+                    )
+                if self.ee_to_joint_solver != "local_lula_dls":
+                    raise ValueError(
+                        f"Unsupported ee_to_joint_solver={self.ee_to_joint_solver!r}; "
+                        "ee_abs_rot6d checkpoints currently use local_lula_dls"
+                    )
+                self._kinematics, self._kinematics_frame = _load_lula_kinematics(
+                    self.lula_extension_path
+                )
+                self._joint_limits = np.asarray(
+                    [
+                        (
+                            self._kinematics.c_space_coord_limits(index).lower,
+                            self._kinematics.c_space_coord_limits(index).upper,
+                        )
+                        for index in range(7)
+                    ],
+                    dtype=np.float64,
+                )
+            else:
+                raise ValueError(
+                    f"Unsupported INSIGHT action_space={self.action_space!r}"
+                )
         self._supports_cached_only = bool(health.get("supports_cached_only", False))
         self._needs_full_query = True
         self.policy = True
@@ -558,6 +573,14 @@ class Groot060ClientWrapper(PolicyBase):
 
         if self.checkpoint_kind == "insight_finetuned":
             state = obs_state.detach().to(torch.float32).cpu().numpy()
+            if self.action_space == "joint_abs":
+                joint_targets = np.clip(action[:, 0:7], _PANDA_LOWER, _PANDA_UPPER)
+                target_gripper = np.clip(action[:, 7:8], 0.0, 0.04)
+                env_action = np.concatenate(
+                    [joint_targets, target_gripper], axis=1
+                ).astype(np.float32, copy=False)
+                return torch.from_numpy(env_action).to(self.device)
+
             current_position = state[:, 0:3]
             current_rotation = _quat_wxyz_to_matrix(state[:, 3:7])
             target_position = action[:, 0:3]
