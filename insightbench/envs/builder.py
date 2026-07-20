@@ -20,6 +20,7 @@ _EVAL_NON_RGB_TERMS = (
     "left_shoulder_semantic",
     "guide_semantic",
 )
+_BOTTLE_SQUEEZE_SCENES = frozenset({"5a", "5g"})
 
 TASK_LIBS: dict[str, list[str]] = {
     "door":   ["3a", "3b", "3c", "3d"],
@@ -82,6 +83,13 @@ def configure_eval_default_joint_state(env, obj_name: str, info: dict) -> None:
             bottle_data.default_joint_pos[:, 0] = 0.0
             bottle_data.default_joint_pos[:, 1] = 0.0
         bottle_data.default_joint_vel.zero_()
+
+
+def resolve_eval_event_key(obj_name: str, scene_key: str, pos_rand: bool) -> str:
+    """Select reset events while preserving squeeze-axis variation in fixed-position evals."""
+    if obj_name == "bottle" and scene_key in _BOTTLE_SQUEEZE_SCENES and not pos_rand:
+        return "5squeeze_test"
+    return scene_key[0] + ("" if pos_rand else "test")
 
 
 def build_env(
@@ -178,7 +186,7 @@ def build_env(
         actions=ContinuousJointActionsCfg(),
         rewards=reward_cfg,
         terminations=TestTerminationsCfg(),
-        events=EVENT_CLASSES[scene_key[0] + ("" if pos_rand else "test")](),
+        events=EVENT_CLASSES[resolve_eval_event_key(obj_name, scene_key, pos_rand)](),
     )
     env_cfg.seed = seed
     env_cfg.episode_length_s = 100

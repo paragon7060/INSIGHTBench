@@ -12,7 +12,7 @@ from cfg.scene1Cfg import EventCabinetCfg, Event1aCfg, Event1bCfg, Event1cCfg, E
 from cfg.scene3Cfg import EventDoorCfg, EventDoorColorCfg, EventDoorTestCfg, EventDoorNoposCfg, EventDoorNoposColorCfg
 from cfg.scene5Cfg import Scene5aCfg, Scene5bCfg, Scene5cCfg, Scene5dCfg, Scene5eCfg
 from cfg.Scene5ExtCfg import SceneBottleExtCfg
-from cfg.scene5Cfg import Reward5Cfg, Reward5CloseCfg, Event5Cfg, Event5RobotFricHighCfg, EventBottleColorCfg, EventBottleTestCfg, EventBottleNoposCfg, EventBottleNoposColorCfg
+from cfg.scene5Cfg import Reward5Cfg, Reward5CloseCfg, Event5Cfg, Event5RobotFricHighCfg, EventBottleColorCfg, EventBottleTestCfg, EventBottleSqueezeTestCfg, EventBottleNoposCfg, EventBottleNoposColorCfg
 # from cfg.scene2Cfg
 
 SCENE_CLASSES = {
@@ -81,6 +81,7 @@ EVENT_CLASSES = {
     "1test":EventCabinetTestCfg,
     "3test":EventDoorTestCfg,
     "5test":EventBottleTestCfg,
+    "5squeeze_test":EventBottleSqueezeTestCfg,
     "1nopos":EventCabinetNoposCfg,
     "3nopos":EventDoorNoposCfg,
     "5nopos":EventBottleNoposCfg,

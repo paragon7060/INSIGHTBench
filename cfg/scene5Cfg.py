@@ -758,6 +758,31 @@ class EventBottleTestCfg():
     )
 
 
+@configclass
+class EventBottleSqueezeTestCfg(EventBottleTestCfg):
+    """Fixed-position test events with squeeze-axis orientation randomization."""
+
+    randomize_root_state = EventTerm(
+        func=reset_root_state_uniform_ori,
+        mode="reset",
+        params={
+            "pose_range": {"roll": (-3.14, 3.14)},
+            "velocity_range": {},
+            "asset_cfg": SceneEntityCfg("bottle"),
+        },
+    )
+
+    randomize_root_state_startup = EventTerm(
+        func=reset_root_state_uniform_ori,
+        mode="startup",
+        params={
+            "pose_range": {"roll": (-3.14, 3.14)},
+            "velocity_range": {},
+            "asset_cfg": SceneEntityCfg("bottle"),
+        },
+    )
+
+
 from cfg.reward_cfg.reward import joint_pos_success, joint_pos
 
 @configclass
