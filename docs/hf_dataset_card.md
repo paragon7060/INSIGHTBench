@@ -43,7 +43,7 @@ tar -xzf InsightBench-Assets-v0.1.tar.gz -C Assets
 Expected archive SHA256:
 
 ```text
-718dbfec6a8402148087885090f48f8d9ce6fd412e18eaa88972af8c1c4af9ed
+7bbd3ef59131a0322e8041be776e9c1356426b720946d77212c8f9ff396823e1
 ```
 
 ## Extracted Layout
@@ -88,6 +88,14 @@ The public bundle excludes these known problematic evaluation assets:
 - `MANIFEST.json` records source-to-target mapping, required-file checks,
   counts, exclusions, and bundle decisions.
 - `ASSET_LICENSES.md` records source dataset attribution and license notes.
+
+## Asset Patch (2026-07-18)
+
+- Normalized `TestSuite/cabinet_suite/34178/mobility_new.usd` so the fully
+  closed pose is joint zero (`joint_2` range approximately `0` to
+  `1.64619 rad`).
+- Added `guides/arrows/guide_arrow_visual.usd` for guide arrows parented under
+  moving cabinet links without nested rigid-body schemas.
 
 ## License And Attribution
 

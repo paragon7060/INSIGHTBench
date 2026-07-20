@@ -193,7 +193,7 @@ tar -xzf InsightBench-Assets-v0.1.tar.gz -C Assets
 Expected archive SHA256:
 
 ```text
-718dbfec6a8402148087885090f48f8d9ce6fd412e18eaa88972af8c1c4af9ed
+7bbd3ef59131a0322e8041be776e9c1356426b720946d77212c8f9ff396823e1
 ```
 
 See [`docs/assets.md`](docs/assets.md) for the full asset download,
