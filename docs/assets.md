@@ -56,7 +56,7 @@ sha256sum -c InsightBench-Assets-v0.1.tar.gz.sha256
 Expected archive SHA256:
 
 ```text
-718dbfec6a8402148087885090f48f8d9ce6fd412e18eaa88972af8c1c4af9ed
+7bbd3ef59131a0322e8041be776e9c1356426b720946d77212c8f9ff396823e1
 ```
 
 Optional per-part verification:
@@ -118,3 +118,11 @@ The public bundle excludes these known problematic evaluation assets:
 - Data collection requires `TrainSuite` as well.
 - Asset metadata and attribution are included inside the archive as
   `MANIFEST.json` and `ASSET_LICENSES.md`.
+
+## Asset Patch (2026-07-18)
+
+- `TestSuite/cabinet_suite/34178/mobility_new.usd` now uses the fully closed
+  pose as joint zero, with `joint_2` limits of approximately `0` to
+  `1.64619 rad`.
+- `guides/arrows/guide_arrow_visual.usd` was added for guide arrows parented
+  under moving cabinet links without nested rigid-body schemas.
