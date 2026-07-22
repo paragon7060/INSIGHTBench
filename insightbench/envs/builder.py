@@ -100,6 +100,9 @@ def build_env(
     num_envs: int,
     seed: int = 42,
     pos_rand: bool = False,
+    ee_to_joint_solver: str = "local_lula_dls",
+    diff_ik_damping: float = 1.0e-3,
+    ik_max_joint_step_rad: float = 0.05,
 ) -> Tuple:
     """Build (env_cfg, scene_key, info) for the given task.
 
@@ -112,6 +115,9 @@ def build_env(
         seed:       RNG seed for reproducibility.
         pos_rand:   When True, apply object position randomization on each reset.
                     When False (default), use fixed positions for reproducibility.
+        ee_to_joint_solver: Select joint-position actions or bounded PhysX DiffIK.
+        diff_ik_damping: DLS damping used by bounded PhysX DiffIK.
+        ik_max_joint_step_rad: Direction-preserving joint step bound.
 
     Returns:
         (env_cfg, scene_key, info) where info is a dict with asset metadata.
@@ -188,6 +194,16 @@ def build_env(
         terminations=TestTerminationsCfg(),
         events=EVENT_CLASSES[resolve_eval_event_key(obj_name, scene_key, pos_rand)](),
     )
+    if ee_to_joint_solver == "isaaclab_diffik_physx_bounded":
+        from custom_lab.envs.mdp.actions.bounded_diffik import BoundedPhysxDiffIKActionsCfg
+
+        env_cfg.actions = BoundedPhysxDiffIKActionsCfg()
+        env_cfg.actions.arm_action.controller.ik_params = {
+            "lambda_val": float(diff_ik_damping)
+        }
+        env_cfg.actions.arm_action.max_joint_step_rad = float(
+            ik_max_joint_step_rad
+        )
     env_cfg.seed = seed
     env_cfg.episode_length_s = 100
     env_cfg.decimation = 12

@@ -250,6 +250,8 @@ def run_episode(
         phase_started = time.perf_counter()
         obs_batch, _, _, _, _ = env.step(action)
         perf_totals["env"] += time.perf_counter() - phase_started
+        if hasattr(policy, "trace_after_env_step"):
+            policy.trace_after_env_step(env)
 
         step_rew = env.reward_manager._step_reward.squeeze(-1)
         success_tracker |= step_rew > reward_threshold
@@ -388,6 +390,19 @@ def _run_job(
             num_envs=num_envs,
             seed=seed,
             pos_rand=args_cli.pos_rand,
+            ee_to_joint_solver=str(
+                OmegaConf.select(
+                    policy_cfg, "ee_to_joint_solver", default="local_lula_dls"
+                )
+            ),
+            diff_ik_damping=float(
+                OmegaConf.select(policy_cfg, "diff_ik_damping", default=1.0e-3)
+            ),
+            ik_max_joint_step_rad=float(
+                OmegaConf.select(
+                    policy_cfg, "ik_max_joint_step_rad", default=0.05
+                )
+            ),
         )
         if eval_cfg.get("optimize_camera_pipeline", False):
             required_views = {"wrist", "right_shoulder"}
