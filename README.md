@@ -20,22 +20,6 @@ Assets are split equally into **seen** and **unseen** sets (3/3 cabinet, 5/4 doo
 
 Each task requires the policy to interpret a visual guide image and execute a precise manipulation sequence using the Franka Panda arm.
 
----
-
-## Benchmark Results
-
-Success rate (%) over 8 parallel environments × 1 episode per asset-task pair (139 runs total).
-
-| Policy | Cabinet | Door | Bottle | **Overall** |
-|--------|:-------:|:----:|:------:|:-----------:|
-| Diffusion Policy | — | — | — | — |
-| Pi0 (no guide) | — | — | — | — |
-| Pi0 (guide) | — | — | — | — |
-| SmolVLA | — | — | — | — |
-| GR00T | —% | —% | — | — |
-| Instruction-GPT + Pi0 | — | — | — | — |
-
-*Evaluated on Isaac Sim 5.0. Results will be updated as evaluations complete.*
 
 ---
 
