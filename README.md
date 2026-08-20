@@ -2,6 +2,8 @@
 
 **InsightBench** is a simulation benchmark for evaluating robot manipulation policies in scenarios where a *visual guide* provides task-specific information at inference time — such as an arrow indicating which drawer to open, a rotation direction for a door, or a grip point for a bottle cap.
 
+Project Website (https://insight-bench-robot.github.io/)
+
 > Built on [Isaac Lab](https://github.com/isaac-sim/IsaacLab) (Isaac Sim 5.0) and [LeRobot](https://github.com/huggingface/lerobot).
 
 ---
